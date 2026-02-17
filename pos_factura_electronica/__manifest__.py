@@ -13,13 +13,9 @@
     "data": [
         "security/ir.model.access.csv",
         "views/pos_config_views.xml",
+        "views/pos_payment_method_views.xml",
+        "views/pos_order_views.xml",
     ],
-    "assets": {
-        "point_of_sale._assets_pos": [
-            "pos_factura_electronica/static/src/js/pos_fe_selection.js",
-            "pos_factura_electronica/static/src/xml/pos_fe_selection.xml",
-        ],
-    },
     "installable": True,
     "application": False,
 }
