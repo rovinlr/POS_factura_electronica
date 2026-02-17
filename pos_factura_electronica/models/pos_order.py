@@ -105,8 +105,17 @@ class PosOrder(models.Model):
 
         return invoices
 
-    def _process_order(self, order, draft, existing_order=False):
-        pos_order = super()._process_order(order, draft, existing_order)
+    def _process_order(self, order, draft, existing_order=False, **kwargs):
+        """Compatibilidad entre versiones de Odoo para el flujo POS.
+
+        En algunas versiones ``super()._process_order`` recibe
+        ``(order, draft, existing_order)`` y en otras solo
+        ``(order, draft)``.
+        """
+        try:
+            pos_order = super()._process_order(order, draft, existing_order, **kwargs)
+        except TypeError:
+            pos_order = super()._process_order(order, draft, **kwargs)
         if not pos_order or not pos_order.config_id.l10n_cr_enable_einvoice_from_pos:
             return pos_order
 
