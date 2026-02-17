@@ -64,14 +64,17 @@ class PosOrder(models.Model):
         ).strip()
         return vals
 
-    @api.depends("account_move", "name")
+    @api.depends("account_move", "name", "pos_reference")
     def _compute_cr_fe_generated_move_ids(self):
         for order in self:
+            origin_values = [value for value in [order.name, order.pos_reference] if value]
             domain = [
                 ("move_type", "in", ("out_invoice", "out_refund")),
                 "|",
-                ("invoice_origin", "=", order.name),
+                "|",
                 ("id", "=", order.account_move.id),
+                ("invoice_origin", "in", origin_values),
+                ("ref", "ilike", order.name or ""),
             ]
             order.cr_fe_generated_move_ids = self.env["account.move"].search(domain)
 
