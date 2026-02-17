@@ -11,5 +11,12 @@ class PosConfig(models.Model):
 
     def _load_pos_data_fields(self, config):
         fields_list = super()._load_pos_data_fields(config)
+        if "use_pricelist" not in fields_list:
+            fields_list.append("use_pricelist")
         fields_list.append("l10n_cr_enable_einvoice_from_pos")
         return fields_list
+
+    def _load_pos_data_read(self, records, config):
+        for record in records:
+            record.setdefault("use_pricelist", False)
+        return super()._load_pos_data_read(records, config)
