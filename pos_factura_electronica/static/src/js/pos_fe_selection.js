@@ -8,10 +8,11 @@ import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_
 
 patch(Order.prototype, {
     setup() {
-        super.setup(...arguments);
+        const result = super.setup(...arguments);
         this.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
         this.cr_fe_payment_method = this.cr_fe_payment_method || "01";
         this.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
+        return result;
     },
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
