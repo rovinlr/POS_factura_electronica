@@ -27,3 +27,22 @@ Integración de **Punto de Venta en Odoo 19** con **`l10n_cr_einvoice`** (Costa 
 ## Nota técnica
 
 El módulo reutiliza el flujo de `l10n_cr_einvoice` y evita pedir datos FE manualmente en el frontend del POS.
+
+## Solución de errores frecuentes
+
+### "Operación no válida" con moneda principal CRC
+
+Si Odoo muestra el mensaje:
+
+> "Su moneda principal (CRC) no es compatible con este proveedor de tipos de cambio. Elija otra."
+
+significa que el proveedor de tipos de cambio seleccionado no ofrece cotizaciones para `CRC`.
+
+Pasos recomendados:
+
+1. Ve a **Contabilidad → Configuración → Proveedores de tipos de cambio**.
+2. Selecciona un proveedor que incluya `CRC` entre sus monedas soportadas.
+3. Si no existe uno disponible en tu instalación, usa **actualización manual** del tipo de cambio para CRC.
+4. Guarda y vuelve a intentar la operación.
+
+> Este mensaje no es un fallo del módulo `pos_factura_electronica`, sino una validación estándar de compatibilidad de moneda/proveedor en Odoo.
