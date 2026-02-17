@@ -2,23 +2,25 @@
 
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
-import { Order } from "@point_of_sale/app/store/models";
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
-import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
+import { SelectionPopup } from "@point_of_sale/app/components/popups/selection_popup/selection_popup";
+import { makeAwaitable } from "@point_of_sale/app/utils/make_awaitable_dialog";
 
-patch(Order.prototype, {
-    export_as_JSON() {
-        const json = super.export_as_JSON(...arguments);
-        json.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
-        json.cr_fe_payment_method = this.cr_fe_payment_method || "01";
-        json.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
-        return json;
+patch(PosOrder.prototype, {
+    setup(vals) {
+        super.setup(...arguments);
+        this.cr_fe_document_kind = vals.cr_fe_document_kind || "electronic_invoice";
+        this.cr_fe_payment_method = vals.cr_fe_payment_method || "01";
+        this.cr_fe_payment_condition = vals.cr_fe_payment_condition || "01";
     },
-    init_from_JSON(json) {
-        super.init_from_JSON(...arguments);
-        this.cr_fe_document_kind = json.cr_fe_document_kind || "electronic_invoice";
-        this.cr_fe_payment_method = json.cr_fe_payment_method || "01";
-        this.cr_fe_payment_condition = json.cr_fe_payment_condition || "01";
+
+    serializeForORM(opts = {}) {
+        const data = super.serializeForORM(opts);
+        data.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
+        data.cr_fe_payment_method = this.cr_fe_payment_method || "01";
+        data.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
+        return data;
     },
 });
 
@@ -29,7 +31,7 @@ patch(PaymentScreen.prototype, {
             return;
         }
 
-        const docResult = await this.popup.add(SelectionPopup, {
+        const docPayload = await makeAwaitable(this.dialog, SelectionPopup, {
             title: _t("Tipo de documento"),
             list: [
                 { id: "electronic_invoice", label: _t("Factura electrónica"), item: "electronic_invoice" },
@@ -37,12 +39,12 @@ patch(PaymentScreen.prototype, {
                 { id: "credit_note", label: _t("Nota de crédito"), item: "credit_note" },
             ],
         });
-        if (!docResult?.confirmed) {
+        if (!docPayload) {
             return;
         }
-        order.cr_fe_document_kind = docResult.payload;
+        order.cr_fe_document_kind = docPayload;
 
-        const methodResult = await this.popup.add(SelectionPopup, {
+        const methodPayload = await makeAwaitable(this.dialog, SelectionPopup, {
             title: _t("Método de pago FE"),
             list: [
                 { id: "01", label: _t("01 - Efectivo"), item: "01" },
@@ -51,21 +53,24 @@ patch(PaymentScreen.prototype, {
                 { id: "04", label: _t("04 - Crédito"), item: "04" },
             ],
         });
-        if (!methodResult?.confirmed) {
+        if (!methodPayload) {
             return;
         }
-        order.cr_fe_payment_method = methodResult.payload;
+        order.cr_fe_payment_method = methodPayload;
 
-        const conditionResult = await this.popup.add(SelectionPopup, {
+        const conditionPayload = await makeAwaitable(this.dialog, SelectionPopup, {
             title: _t("Condición de pago FE"),
             list: [
                 { id: "01", label: _t("01 - Contado"), item: "01" },
                 { id: "02", label: _t("02 - Crédito"), item: "02" },
             ],
         });
-        if (!conditionResult?.confirmed) {
+        if (!conditionPayload) {
             return;
         }
-        order.cr_fe_payment_condition = conditionResult.payload;
+        order.cr_fe_payment_condition = conditionPayload;
+
+        // Forzar creación de factura cuando se usan datos FE-CR.
+        order.setToInvoice(true);
     },
 });
