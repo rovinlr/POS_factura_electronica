@@ -8,13 +8,36 @@ import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_
 
 patch(Order.prototype, {
     _computeAllPrices() {
+        const normalizeCurrency = (currencyValue) => {
+            if (!currencyValue) {
+                return null;
+            }
+
+            if (Array.isArray(currencyValue)) {
+                const [id, name] = currencyValue;
+                if (!id) {
+                    return null;
+                }
+                return {
+                    id,
+                    name: name || "",
+                    currency_id: [id, name || ""],
+                };
+            }
+
+            return currencyValue;
+        };
+
         if (!this.currency || !this.currency.id) {
-            this.currency =
+            this.currency = normalizeCurrency(
                 this.pos?.currency ||
                 this.pos?.company?.currency_id ||
                 this.pos?.company?.currency ||
-                null;
+                null
+            );
         }
+
+        this.currency = normalizeCurrency(this.currency);
 
         if (this.currency && !this.currency.currency_id && this.currency.id) {
             this.currency.currency_id = [this.currency.id, this.currency.name || ""];
