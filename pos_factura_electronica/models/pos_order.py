@@ -1,8 +1,14 @@
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class PosOrder(models.Model):
     _inherit = "pos.order"
+
+    cr_fe_generated_move_ids = fields.Many2many(
+        comodel_name="account.move",
+        compute="_compute_cr_fe_generated_move_ids",
+        string="Documentos electrónicos generados",
+    )
 
     cr_fe_document_kind = fields.Selection(
         selection=[
@@ -58,6 +64,17 @@ class PosOrder(models.Model):
         ).strip()
         return vals
 
+    @api.depends("account_move", "name")
+    def _compute_cr_fe_generated_move_ids(self):
+        for order in self:
+            domain = [
+                ("move_type", "in", ("out_invoice", "out_refund")),
+                "|",
+                ("invoice_origin", "=", order.name),
+                ("id", "=", order.account_move.id),
+            ]
+            order.cr_fe_generated_move_ids = self.env["account.move"].search(domain)
+
     def _generate_pos_order_invoice(self):
         invoices = super()._generate_pos_order_invoice()
 
@@ -85,7 +102,7 @@ class PosOrder(models.Model):
 
         return invoices
 
-    def _process_order(self, order, draft, existing_order):
+    def _process_order(self, order, draft, existing_order=False):
         pos_order = super()._process_order(order, draft, existing_order)
         if not pos_order or not pos_order.config_id.l10n_cr_enable_einvoice_from_pos:
             return pos_order
