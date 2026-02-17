@@ -10,14 +10,14 @@ import { makeAwaitable } from "@point_of_sale/app/utils/make_awaitable_dialog";
 patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(...arguments);
-        this.cr_fe_document_kind = vals.cr_fe_document_kind || "electronic_invoice";
+        this.cr_fe_document_kind = vals.cr_fe_document_kind || "electronic_ticket";
         this.cr_fe_payment_method = vals.cr_fe_payment_method || "01";
         this.cr_fe_payment_condition = vals.cr_fe_payment_condition || "01";
     },
 
     serializeForORM(opts = {}) {
         const data = super.serializeForORM(opts);
-        data.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
+        data.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_ticket";
         data.cr_fe_payment_method = this.cr_fe_payment_method || "01";
         data.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
         return data;

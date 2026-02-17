@@ -140,12 +140,34 @@ class PosOrder(models.Model):
             return pos_order
 
         ui_data = self._extract_ui_order_data(order)
+        fe_method, fe_condition = self._resolve_fe_data_from_ui_order(order)
+
+        payment_methods = pos_order_record.payment_ids.mapped("payment_method_id")
+        if not fe_method:
+            fe_method = next(
+                (method.cr_fe_payment_method for method in payment_methods if method.cr_fe_payment_method),
+                False,
+            )
+        if not fe_condition:
+            fe_condition = next(
+                (
+                    method.cr_fe_payment_condition
+                    for method in payment_methods
+                    if method.cr_fe_payment_condition
+                ),
+                False,
+            )
+
+        document_kind = (
+            ui_data.get("cr_fe_document_kind")
+            or ("electronic_invoice" if ui_data.get("to_invoice") else "electronic_ticket")
+        )
         vals_to_write = {
-            "cr_fe_document_kind": ui_data.get("cr_fe_document_kind"),
-            "cr_fe_payment_method": ui_data.get("cr_fe_payment_method"),
-            "cr_fe_payment_condition": ui_data.get("cr_fe_payment_condition"),
+            "cr_fe_document_kind": document_kind,
+            "cr_fe_payment_method": ui_data.get("cr_fe_payment_method") or fe_method,
+            "cr_fe_payment_condition": ui_data.get("cr_fe_payment_condition") or fe_condition,
         }
-        vals_to_write = {key: value for key, value in vals_to_write.items() if value}
+        vals_to_write = {key: value for key, value in vals_to_write.items() if value is not False and value is not None}
         if vals_to_write:
             pos_order_record.write(vals_to_write)
 
