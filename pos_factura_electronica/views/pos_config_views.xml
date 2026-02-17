@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_config_form_inherit_einvoice_cr" model="ir.ui.view">
+        <field name="name">pos.config.form.einvoice.cr</field>
+        <field name="model">pos.config</field>
+        <field name="inherit_id" ref="point_of_sale.pos_config_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//setting[@id='tax_included']" position="after">
+                <setting id="pos_einvoice_cr_enable" string="Factura electrónica Costa Rica en POS">
+                    <field name="l10n_cr_enable_einvoice_from_pos"/>
+                    <div class="text-muted">
+                        Habilita la selección de tipo de documento, método de pago y condición de pago para l10n_cr_einvoice.
+                    </div>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+</odoo>
