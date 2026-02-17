@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="pos_factura_electronica.PaymentScreenButtons" t-inherit="point_of_sale.PaymentScreenButtons" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('payment-buttons')]" position="inside">
+            <button t-if="this.pos.config.l10n_cr_enable_einvoice_from_pos" class="button btn btn-light py-3" t-on-click="() => this.selectCostaRicaEInvoiceData()">
+                <i class="fa fa-file-text-o me-2"/>
+                Datos FE CR
+            </button>
+        </xpath>
+    </t>
+</templates>
