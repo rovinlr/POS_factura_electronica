@@ -116,12 +116,19 @@ class PosOrder(models.Model):
             pos_order = super()._process_order(order, draft, existing_order, **kwargs)
         except TypeError:
             pos_order = super()._process_order(order, draft, **kwargs)
-        if not pos_order or not pos_order.config_id.l10n_cr_enable_einvoice_from_pos:
+
+        if not pos_order:
             return pos_order
 
-        if pos_order.cr_fe_document_kind == "electronic_ticket":
-            if hasattr(pos_order, "action_post_sign_pos_order"):
-                pos_order.action_post_sign_pos_order()
-            elif hasattr(pos_order, "action_post_sign_invoices"):
-                pos_order.action_post_sign_invoices()
+        pos_order_record = (
+            self.browse(pos_order).exists() if isinstance(pos_order, int) else pos_order.exists()
+        )
+        if not pos_order_record or not pos_order_record.config_id.l10n_cr_enable_einvoice_from_pos:
+            return pos_order
+
+        if pos_order_record.cr_fe_document_kind == "electronic_ticket":
+            if hasattr(pos_order_record, "action_post_sign_pos_order"):
+                pos_order_record.action_post_sign_pos_order()
+            elif hasattr(pos_order_record, "action_post_sign_invoices"):
+                pos_order_record.action_post_sign_invoices()
         return pos_order
