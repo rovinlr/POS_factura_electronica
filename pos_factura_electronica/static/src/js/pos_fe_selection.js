@@ -7,6 +7,13 @@ import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
 
 patch(Order.prototype, {
+    _computeAllPrices() {
+        if (!this.currency && this.pos?.currency) {
+            this.currency = this.pos.currency;
+        }
+        return super._computeAllPrices(...arguments);
+    },
+
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
         json.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
