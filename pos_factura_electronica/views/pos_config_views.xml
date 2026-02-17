@@ -9,7 +9,8 @@
                 <setting id="pos_einvoice_cr_enable" string="Factura electrónica Costa Rica en POS">
                     <field name="l10n_cr_enable_einvoice_from_pos"/>
                     <div class="text-muted">
-                        Habilita la selección de tipo de documento, método de pago y condición de pago para l10n_cr_einvoice.
+                        Si en el cobro marca "Facturar", se enviará Factura Electrónica; si no, se enviará Tiquete Electrónico.
+                        El método y condición FE se toman de cada método de pago del POS.
                     </div>
                 </setting>
             </xpath>

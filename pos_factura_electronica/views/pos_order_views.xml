@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_pos_form_inherit_fe_cr" model="ir.ui.view">
+        <field name="name">pos.order.form.fe.cr</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Documento electrónico" name="cr_fe_electronic_document">
+                    <group>
+                        <field name="cr_fe_document_kind" readonly="1"/>
+                        <field name="cr_fe_payment_method" readonly="1"/>
+                        <field name="cr_fe_payment_condition" readonly="1"/>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
