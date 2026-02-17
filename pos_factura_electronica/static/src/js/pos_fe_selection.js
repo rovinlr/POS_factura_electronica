@@ -8,9 +8,18 @@ import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_
 
 patch(Order.prototype, {
     _computeAllPrices() {
-        if (!this.currency && this.pos?.currency) {
-            this.currency = this.pos.currency;
+        if (!this.currency || !this.currency.id) {
+            this.currency =
+                this.pos?.currency ||
+                this.pos?.company?.currency_id ||
+                this.pos?.company?.currency ||
+                null;
         }
+
+        if (this.currency && !this.currency.currency_id && this.currency.id) {
+            this.currency.currency_id = [this.currency.id, this.currency.name || ""];
+        }
+
         return super._computeAllPrices(...arguments);
     },
 
