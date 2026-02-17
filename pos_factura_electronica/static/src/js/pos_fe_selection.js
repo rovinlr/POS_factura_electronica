@@ -7,18 +7,11 @@ import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
 
 patch(Order.prototype, {
-    setup() {
-        const result = super.setup(...arguments);
-        this.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
-        this.cr_fe_payment_method = this.cr_fe_payment_method || "01";
-        this.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
-        return result;
-    },
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
-        json.cr_fe_document_kind = this.cr_fe_document_kind;
-        json.cr_fe_payment_method = this.cr_fe_payment_method;
-        json.cr_fe_payment_condition = this.cr_fe_payment_condition;
+        json.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
+        json.cr_fe_payment_method = this.cr_fe_payment_method || "01";
+        json.cr_fe_payment_condition = this.cr_fe_payment_condition || "01";
         return json;
     },
     init_from_JSON(json) {
