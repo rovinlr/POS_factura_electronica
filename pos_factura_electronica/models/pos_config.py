@@ -17,6 +17,7 @@ class PosConfig(models.Model):
         return fields_list
 
     def _load_pos_data_read(self, records, config):
-        for record in records:
+        loaded_records = super()._load_pos_data_read(records, config)
+        for record in loaded_records:
             record.setdefault("use_pricelist", False)
-        return super()._load_pos_data_read(records, config)
+        return loaded_records
