@@ -22,9 +22,18 @@ class PosOrder(models.Model):
     cr_fe_payment_method = fields.Char(string="Método de pago FE")
     cr_fe_payment_condition = fields.Char(string="Condición de pago FE")
 
+    @staticmethod
+    def _extract_ui_order_data(ui_order):
+        """Normaliza el payload del POS para distintas versiones."""
+        if not isinstance(ui_order, dict):
+            return {}
+        data = ui_order.get("data")
+        return data if isinstance(data, dict) else ui_order
+
     def _resolve_fe_data_from_ui_order(self, ui_order):
         """Obtiene método/condición FE desde los métodos de pago usados en el POS."""
-        statement_ids = ui_order.get("statement_ids") or []
+        ui_data = self._extract_ui_order_data(ui_order)
+        statement_ids = ui_data.get("statement_ids") or []
         payment_method_ids = []
         for statement in statement_ids:
             if isinstance(statement, (list, tuple)) and len(statement) > 2:
@@ -40,13 +49,17 @@ class PosOrder(models.Model):
 
     def _order_fields(self, ui_order):
         vals = super()._order_fields(ui_order)
+        ui_data = self._extract_ui_order_data(ui_order)
         fe_method, fe_condition = self._resolve_fe_data_from_ui_order(ui_order)
-        document_kind = "electronic_invoice" if ui_order.get("to_invoice") else "electronic_ticket"
+        document_kind = (
+            ui_data.get("cr_fe_document_kind")
+            or ("electronic_invoice" if ui_data.get("to_invoice") else "electronic_ticket")
+        )
         vals.update(
             {
                 "cr_fe_document_kind": document_kind,
-                "cr_fe_payment_method": fe_method,
-                "cr_fe_payment_condition": fe_condition,
+                "cr_fe_payment_method": ui_data.get("cr_fe_payment_method") or fe_method,
+                "cr_fe_payment_condition": ui_data.get("cr_fe_payment_condition") or fe_condition,
             }
         )
         return vals
@@ -125,6 +138,16 @@ class PosOrder(models.Model):
         )
         if not pos_order_record or not pos_order_record.config_id.l10n_cr_enable_einvoice_from_pos:
             return pos_order
+
+        ui_data = self._extract_ui_order_data(order)
+        vals_to_write = {
+            "cr_fe_document_kind": ui_data.get("cr_fe_document_kind"),
+            "cr_fe_payment_method": ui_data.get("cr_fe_payment_method"),
+            "cr_fe_payment_condition": ui_data.get("cr_fe_payment_condition"),
+        }
+        vals_to_write = {key: value for key, value in vals_to_write.items() if value}
+        if vals_to_write:
+            pos_order_record.write(vals_to_write)
 
         if pos_order_record.cr_fe_document_kind == "electronic_ticket":
             if hasattr(pos_order_record, "action_post_sign_pos_order"):
