@@ -7,45 +7,6 @@ import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
 
 patch(Order.prototype, {
-    _computeAllPrices() {
-        const normalizeCurrency = (currencyValue) => {
-            if (!currencyValue) {
-                return null;
-            }
-
-            if (Array.isArray(currencyValue)) {
-                const [id, name] = currencyValue;
-                if (!id) {
-                    return null;
-                }
-                return {
-                    id,
-                    name: name || "",
-                    currency_id: [id, name || ""],
-                };
-            }
-
-            return currencyValue;
-        };
-
-        if (!this.currency || !this.currency.id) {
-            this.currency = normalizeCurrency(
-                this.pos?.currency ||
-                this.pos?.company?.currency_id ||
-                this.pos?.company?.currency ||
-                null
-            );
-        }
-
-        this.currency = normalizeCurrency(this.currency);
-
-        if (this.currency && !this.currency.currency_id && this.currency.id) {
-            this.currency.currency_id = [this.currency.id, this.currency.name || ""];
-        }
-
-        return super._computeAllPrices(...arguments);
-    },
-
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
         json.cr_fe_document_kind = this.cr_fe_document_kind || "electronic_invoice";
