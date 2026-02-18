@@ -153,29 +153,13 @@ class PosOrder(models.Model):
         if pos_order_record.account_move:
             self._trigger_fe_signature(pos_order_record.account_move.sudo())
 
-    def _process_order(self, order, draft, existing_order=False, **kwargs):
-        """Compatibilidad entre versiones de Odoo para el flujo POS.
-
-        En algunas versiones ``super()._process_order`` recibe
-        ``(order, draft, existing_order)`` y en otras solo
-        ``(order, draft)``.
-        """
-        try:
-            pos_order = super()._process_order(order, draft, existing_order, **kwargs)
-        except TypeError:
-            pos_order = super()._process_order(order, draft, **kwargs)
-
-        if not pos_order:
-            return pos_order
-
-        pos_order_record = (
-            self.browse(pos_order).exists() if isinstance(pos_order, int) else pos_order.exists()
-        )
+    def _sync_fe_values_from_order_payload(self, pos_order_record, ui_order):
+        """Sincroniza los valores FE enviados por el frontend al pedido POS."""
         if not pos_order_record or not pos_order_record.config_id.l10n_cr_enable_einvoice_from_pos:
-            return pos_order
+            return
 
-        ui_data = self._extract_ui_order_data(order)
-        fe_method, fe_condition = self._resolve_fe_data_from_ui_order(order)
+        ui_data = self._extract_ui_order_data(ui_order)
+        fe_method, fe_condition = self._resolve_fe_data_from_ui_order(ui_order)
 
         payment_methods = pos_order_record.payment_ids.mapped("payment_method_id")
         if not fe_method:
@@ -202,9 +186,63 @@ class PosOrder(models.Model):
             "cr_fe_payment_method": ui_data.get("cr_fe_payment_method") or fe_method,
             "cr_fe_payment_condition": ui_data.get("cr_fe_payment_condition") or fe_condition,
         }
-        vals_to_write = {key: value for key, value in vals_to_write.items() if value is not False and value is not None}
+        vals_to_write = {
+            key: value
+            for key, value in vals_to_write.items()
+            if value is not False and value is not None
+        }
         if vals_to_write:
             pos_order_record.write(vals_to_write)
+
+    @api.model
+    def create_from_ui(self, orders, draft=False):
+        """Asegura que los tiquetes FE se procesen al cerrar la creación del pedido.
+
+        En algunos flujos, `_process_order` corre antes de que el pedido quede en
+        estado `paid/done`, por lo que no se genera la factura para tiquete.
+        """
+        pos_references_to_payload = {}
+        for ui_order in orders or []:
+            ui_data = self._extract_ui_order_data(ui_order)
+            pos_reference = ui_data.get("name")
+            if pos_reference:
+                pos_references_to_payload[pos_reference] = ui_order
+
+        order_ids = super().create_from_ui(orders, draft=draft)
+
+        if draft or not pos_references_to_payload:
+            return order_ids
+
+        created_orders = self.search([("pos_reference", "in", list(pos_references_to_payload.keys()))])
+        for order in created_orders:
+            ui_order = pos_references_to_payload.get(order.pos_reference)
+            if not ui_order:
+                continue
+            self._sync_fe_values_from_order_payload(order, ui_order)
+            self._ensure_ticket_invoice_and_sign(order)
+        return order_ids
+
+    def _process_order(self, order, draft, existing_order=False, **kwargs):
+        """Compatibilidad entre versiones de Odoo para el flujo POS.
+
+        En algunas versiones ``super()._process_order`` recibe
+        ``(order, draft, existing_order)`` y en otras solo
+        ``(order, draft)``.
+        """
+        try:
+            pos_order = super()._process_order(order, draft, existing_order, **kwargs)
+        except TypeError:
+            pos_order = super()._process_order(order, draft, **kwargs)
+
+        if not pos_order:
+            return pos_order
+
+        pos_order_record = (
+            self.browse(pos_order).exists() if isinstance(pos_order, int) else pos_order.exists()
+        )
+        if not pos_order_record or not pos_order_record.config_id.l10n_cr_enable_einvoice_from_pos:
+            return pos_order
+        self._sync_fe_values_from_order_payload(pos_order_record, order)
 
         if pos_order_record.cr_fe_document_kind == "electronic_ticket":
             self._ensure_ticket_invoice_and_sign(pos_order_record)
