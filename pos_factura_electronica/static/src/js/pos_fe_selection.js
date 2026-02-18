@@ -33,18 +33,20 @@ patch(PosOrder.prototype, {
 patch(PaymentScreen.prototype, {
     async validateOrder(isForceValidate) {
         const order = this.currentOrder;
+        const isToInvoice =
+            typeof order?.is_to_invoice === "function"
+                ? order.is_to_invoice()
+                : typeof order?.isToInvoice === "function"
+                  ? order.isToInvoice()
+                  : !!order?.to_invoice;
         const partner =
             typeof order?.get_partner === "function"
                 ? order.get_partner()
                 : typeof order?.getPartner === "function"
                   ? order.getPartner()
                   : order?.partner_id || false;
-        if (
-            this.pos.config.l10n_cr_enable_einvoice_from_pos &&
-            order &&
-            order.cr_fe_document_kind === "electronic_ticket" &&
-            !partner
-        ) {
+        const shouldTreatAsTicket = !isToInvoice || order?.cr_fe_document_kind === "electronic_ticket";
+        if (this.pos.config.l10n_cr_enable_einvoice_from_pos && order && shouldTreatAsTicket && !partner) {
             if (typeof order.set_to_invoice === "function") {
                 order.set_to_invoice(false);
             } else if (typeof order.setToInvoice === "function") {
@@ -52,6 +54,7 @@ patch(PaymentScreen.prototype, {
             } else {
                 order.to_invoice = false;
             }
+            order.cr_fe_document_kind = "electronic_ticket";
         }
         return super.validateOrder(...arguments);
     },
