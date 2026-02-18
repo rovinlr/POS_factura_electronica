@@ -33,11 +33,17 @@ patch(PosOrder.prototype, {
 patch(PaymentScreen.prototype, {
     async validateOrder(isForceValidate) {
         const order = this.currentOrder;
+        const partner =
+            typeof order?.get_partner === "function"
+                ? order.get_partner()
+                : typeof order?.getPartner === "function"
+                  ? order.getPartner()
+                  : order?.partner_id || false;
         if (
             this.pos.config.l10n_cr_enable_einvoice_from_pos &&
             order &&
             order.cr_fe_document_kind === "electronic_ticket" &&
-            !order.get_partner()
+            !partner
         ) {
             if (typeof order.set_to_invoice === "function") {
                 order.set_to_invoice(false);
