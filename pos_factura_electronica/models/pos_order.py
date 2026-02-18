@@ -97,12 +97,15 @@ class PosOrder(models.Model):
         for order in self:
             if not order.config_id.l10n_cr_enable_einvoice_from_pos:
                 continue
-            move = order.account_move
+            move = order.account_move.sudo()
             if not move:
                 continue
 
+            document_kind = (
+                "credit_note" if move.move_type == "out_refund" else order.cr_fe_document_kind or "electronic_invoice"
+            )
             field_mapping = {
-                "l10n_cr_fe_document_kind": "electronic_invoice",
+                "l10n_cr_fe_document_kind": document_kind,
                 "l10n_cr_payment_method": order.cr_fe_payment_method,
                 "l10n_cr_payment_condition": order.cr_fe_payment_condition,
             }
@@ -113,10 +116,24 @@ class PosOrder(models.Model):
             if move.state == "draft":
                 move._post()
 
-            if hasattr(move, "action_post_sign_invoices"):
-                move.action_post_sign_invoices()
+            self._trigger_fe_signature(move)
 
         return invoices
+
+    @staticmethod
+    def _trigger_fe_signature(move):
+        """Compatibilidad para disparar firmado/envío FE según versión instalada."""
+        sign_methods = (
+            "action_post_sign_pos_order",
+            "action_post_sign_invoices",
+            "action_sign_and_send",
+            "action_sign_xml",
+        )
+        for method_name in sign_methods:
+            if hasattr(move, method_name):
+                getattr(move, method_name)()
+                return True
+        return False
 
     def _process_order(self, order, draft, existing_order=False, **kwargs):
         """Compatibilidad entre versiones de Odoo para el flujo POS.
@@ -172,8 +189,5 @@ class PosOrder(models.Model):
             pos_order_record.write(vals_to_write)
 
         if pos_order_record.cr_fe_document_kind == "electronic_ticket":
-            if hasattr(pos_order_record, "action_post_sign_pos_order"):
-                pos_order_record.action_post_sign_pos_order()
-            elif hasattr(pos_order_record, "action_post_sign_invoices"):
-                pos_order_record.action_post_sign_invoices()
+            self._trigger_fe_signature(pos_order_record.sudo())
         return pos_order
