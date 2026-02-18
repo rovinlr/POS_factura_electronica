@@ -133,7 +133,25 @@ class PosOrder(models.Model):
             if hasattr(move, method_name):
                 getattr(move, method_name)()
                 return True
+
+        if getattr(move, "_name", "") == "pos.order" and getattr(move, "account_move", False):
+            return PosOrder._trigger_fe_signature(move.account_move.sudo())
         return False
+
+    def _ensure_ticket_invoice_and_sign(self, pos_order_record):
+        """Para tiquete electrónico, genera factura POS y dispara firmado/envío."""
+        if not pos_order_record or pos_order_record.cr_fe_document_kind != "electronic_ticket":
+            return
+
+        if pos_order_record.state not in ("paid", "done", "invoiced"):
+            return
+
+        if not pos_order_record.account_move:
+            pos_order_record.sudo()._generate_pos_order_invoice()
+            pos_order_record.flush_recordset(["account_move"])
+
+        if pos_order_record.account_move:
+            self._trigger_fe_signature(pos_order_record.account_move.sudo())
 
     def _process_order(self, order, draft, existing_order=False, **kwargs):
         """Compatibilidad entre versiones de Odoo para el flujo POS.
@@ -189,5 +207,5 @@ class PosOrder(models.Model):
             pos_order_record.write(vals_to_write)
 
         if pos_order_record.cr_fe_document_kind == "electronic_ticket":
-            self._trigger_fe_signature(pos_order_record.sudo())
+            self._ensure_ticket_invoice_and_sign(pos_order_record)
         return pos_order
