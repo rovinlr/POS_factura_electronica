@@ -1,0 +1,163 @@
+from datetime import timedelta
+
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
+
+
+class AccountMove(models.Model):
+    _inherit = "account.move"
+
+    cr_pos_order_id = fields.Many2one("pos.order", string="Pedido POS FE", index=True, copy=False)
+    cr_pos_document_type = fields.Selection(
+        [("ticket", "Tiquete Electrónico"), ("invoice", "Factura Electrónica")],
+        string="Documento FE POS",
+        copy=False,
+    )
+    cr_pos_fe_state = fields.Selection(
+        [
+            ("not_applicable", "No aplica"),
+            ("to_send", "Pendiente de envío"),
+            ("sending", "Enviando"),
+            ("sent", "Enviado"),
+            ("error", "Con error"),
+        ],
+        default="not_applicable",
+        string="Estado FE POS",
+        copy=False,
+        tracking=True,
+    )
+    cr_pos_fe_retry_count = fields.Integer(string="Reintentos FE POS", default=0, copy=False)
+    cr_pos_fe_next_try = fields.Datetime(string="Próximo intento FE POS", copy=False)
+    cr_pos_fe_last_error = fields.Text(string="Último error FE POS", copy=False)
+    cr_pos_fe_last_send_date = fields.Datetime(string="Último envío FE POS", copy=False)
+
+    def action_cr_pos_send_hacienda(self):
+        for move in self:
+            move._cr_pos_enqueue_for_send(force=True)
+            move._cr_pos_send_to_hacienda()
+        return True
+
+    def action_cr_pos_check_hacienda_status(self):
+        for move in self:
+            move._cr_pos_check_hacienda_status()
+        return True
+
+    def _cr_pos_enqueue_for_send(self, force=False):
+        now = fields.Datetime.now()
+        for move in self:
+            if move.state != "posted":
+                continue
+            if move.cr_pos_fe_state == "sent" and not force:
+                continue
+            move.write(
+                {
+                    "cr_pos_fe_state": "to_send",
+                    "cr_pos_fe_next_try": now,
+                    "cr_pos_fe_last_error": False,
+                }
+            )
+
+    def _cr_pos_send_to_hacienda(self):
+        self.ensure_one()
+        if self.cr_pos_fe_state == "sent":
+            return True
+        if self.state != "posted":
+            raise UserError(_("Solo se pueden enviar documentos publicados."))
+
+        self.write({"cr_pos_fe_state": "sending"})
+        try:
+            self._cr_pos_call_send_method()
+            self.write(
+                {
+                    "cr_pos_fe_state": "sent",
+                    "cr_pos_fe_last_error": False,
+                    "cr_pos_fe_last_send_date": fields.Datetime.now(),
+                    "cr_pos_fe_next_try": False,
+                }
+            )
+            self._cr_pos_sync_order_fe_data()
+            return True
+        except Exception as error:  # noqa: BLE001
+            retries = self.cr_pos_fe_retry_count + 1
+            next_try = fields.Datetime.now() + timedelta(minutes=min(60, retries * 5))
+            self.write(
+                {
+                    "cr_pos_fe_state": "error",
+                    "cr_pos_fe_retry_count": retries,
+                    "cr_pos_fe_last_error": str(error),
+                    "cr_pos_fe_next_try": next_try,
+                }
+            )
+            return False
+
+    def _cr_pos_call_send_method(self):
+        self.ensure_one()
+        send_methods = [
+            "action_sign_and_send",
+            "action_post_sign_invoices",
+            "action_send_to_hacienda",
+            "action_sign_xml",
+            "action_post_sign_pos_order",
+        ]
+        for method_name in send_methods:
+            if hasattr(self, method_name):
+                getattr(self, method_name)()
+                return
+        raise UserError(_("No se encontró un método público de envío FE en l10n_cr_einvoice."))
+
+    def _cr_pos_check_hacienda_status(self):
+        self.ensure_one()
+        status_methods = [
+            "action_check_hacienda_status",
+            "action_consult_hacienda",
+            "action_get_hacienda_status",
+            "action_refresh_hacienda_status",
+        ]
+        for method_name in status_methods:
+            if hasattr(self, method_name):
+                getattr(self, method_name)()
+                self._cr_pos_sync_order_fe_data()
+                return True
+        raise UserError(_("No se encontró método público para consultar estado FE."))
+
+    def _cr_pos_sync_order_fe_data(self):
+        for move in self:
+            order = move.cr_pos_order_id
+            if not order:
+                continue
+            status = move.cr_pos_fe_state
+            clave = False
+            for candidate in ("l10n_cr_clave", "l10n_cr_einvoice_key", "l10n_cr_numero_consecutivo"):
+                if candidate in move._fields and move[candidate]:
+                    clave = move[candidate]
+                    break
+            xml_attachment = self.env["ir.attachment"].search(
+                [
+                    ("res_model", "=", "account.move"),
+                    ("res_id", "=", move.id),
+                    ("mimetype", "in", ["application/xml", "text/xml"]),
+                ],
+                order="id desc",
+                limit=1,
+            )
+            order.write(
+                {
+                    "cr_fe_status": status,
+                    "cr_fe_clave": clave,
+                    "cr_fe_xml_attachment_id": xml_attachment.id or False,
+                }
+            )
+
+    @api.model
+    def _cron_cr_pos_send_pending_documents(self, limit=50):
+        domain = [
+            ("cr_pos_fe_state", "in", ["to_send", "error"]),
+            ("state", "=", "posted"),
+            "|",
+            ("cr_pos_fe_next_try", "=", False),
+            ("cr_pos_fe_next_try", "<=", fields.Datetime.now()),
+        ]
+        to_send = self.search(domain, limit=limit, order="cr_pos_fe_next_try asc, id asc")
+        for move in to_send:
+            move._cr_pos_send_to_hacienda()
+        return True

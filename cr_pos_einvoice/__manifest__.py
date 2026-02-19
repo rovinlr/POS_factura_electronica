@@ -1,0 +1,17 @@
+{
+    "name": "CR POS Electronic Invoice Bridge",
+    "summary": "Puente POS -> FE CR (Tiquete/Factura) reutilizando l10n_cr_einvoice",
+    "version": "19.0.1.0.0",
+    "category": "Point of Sale",
+    "author": "Rovinlr / Community",
+    "license": "LGPL-3",
+    "depends": ["point_of_sale", "account", "l10n_cr_einvoice"],
+    "data": [
+        "security/ir.model.access.csv",
+        "data/cron.xml",
+        "views/account_move_views.xml",
+        "views/pos_order_views.xml",
+    ],
+    "installable": True,
+    "application": False,
+}
