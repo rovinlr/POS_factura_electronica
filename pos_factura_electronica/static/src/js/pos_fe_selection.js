@@ -15,8 +15,20 @@ patch(PosOrder.prototype, {
     serializeForORM(opts = {}) {
         const data = super.serializeForORM(opts);
 
+        const isToInvoice =
+            typeof this.is_to_invoice === "function"
+                ? this.is_to_invoice()
+                : typeof this.isToInvoice === "function"
+                  ? this.isToInvoice()
+                  : !!this.to_invoice;
+
         // Si se marca "Facturar", usar Factura Electrónica; si no, Tiquete Electrónico.
-        data.cr_fe_document_kind = this.to_invoice ? "electronic_invoice" : "electronic_ticket";
+        data.cr_fe_document_kind = isToInvoice ? "electronic_invoice" : "electronic_ticket";
+
+        // No forzar facturación cuando el documento FE es tiquete.
+        if (data.cr_fe_document_kind === "electronic_ticket") {
+            data.to_invoice = false;
+        }
 
         // Método y condición FE se resuelven según los métodos de pago del POS (backend).
         if (this.cr_fe_payment_method) {
@@ -31,13 +43,31 @@ patch(PosOrder.prototype, {
 });
 
 patch(PaymentScreen.prototype, {
+    _getOrderInvoicingState(order) {
+        return typeof order?.is_to_invoice === "function"
+            ? order.is_to_invoice()
+            : typeof order?.isToInvoice === "function"
+              ? order.isToInvoice()
+              : !!order?.to_invoice;
+    },
+
+    _setOrderInvoicingState(order, value) {
+        if (!order) {
+            return;
+        }
+        if (typeof order.set_to_invoice === "function") {
+            order.set_to_invoice(value);
+            return;
+        }
+        if (typeof order.setToInvoice === "function") {
+            order.setToInvoice(value);
+            return;
+        }
+        order.to_invoice = !!value;
+    },
+
     _normalizeToTicketWithoutPartner(order) {
-        const isToInvoice =
-            typeof order?.is_to_invoice === "function"
-                ? order.is_to_invoice()
-                : typeof order?.isToInvoice === "function"
-                  ? order.isToInvoice()
-                  : !!order?.to_invoice;
+        const isToInvoice = this._getOrderInvoicingState(order);
         const partner =
             typeof order?.get_partner === "function"
                 ? order.get_partner()
@@ -52,26 +82,35 @@ patch(PaymentScreen.prototype, {
             shouldTreatAsTicket &&
             !partner
         ) {
-            if (typeof order.set_to_invoice === "function") {
-                order.set_to_invoice(false);
-            } else if (typeof order.setToInvoice === "function") {
-                order.setToInvoice(false);
-            } else {
-                order.to_invoice = false;
-            }
+            this._setOrderInvoicingState(order, false);
             order.cr_fe_document_kind = "electronic_ticket";
             return true;
         }
         return false;
     },
 
+    _normalizeToTicketByInvoicingSelection(order) {
+        if (!this.pos.config.l10n_cr_enable_einvoice_from_pos || !order) {
+            return false;
+        }
+        if (this._getOrderInvoicingState(order)) {
+            order.cr_fe_document_kind = "electronic_invoice";
+            return false;
+        }
+        this._setOrderInvoicingState(order, false);
+        order.cr_fe_document_kind = "electronic_ticket";
+        return true;
+    },
+
     async _isOrderValid(isForceValidate) {
         this._normalizeToTicketWithoutPartner(this.currentOrder);
+        this._normalizeToTicketByInvoicingSelection(this.currentOrder);
         return super._isOrderValid(...arguments);
     },
 
     async validateOrder(isForceValidate) {
         this._normalizeToTicketWithoutPartner(this.currentOrder);
+        this._normalizeToTicketByInvoicingSelection(this.currentOrder);
         return super.validateOrder(...arguments);
     },
 });

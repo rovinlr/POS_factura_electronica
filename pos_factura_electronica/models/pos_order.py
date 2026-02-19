@@ -138,9 +138,12 @@ class PosOrder(models.Model):
             return PosOrder._trigger_fe_signature(move.account_move.sudo())
         return False
 
-    def _ensure_ticket_invoice_and_sign(self, pos_order_record):
-        """Para tiquete electrónico, genera factura POS y dispara firmado/envío."""
-        if not pos_order_record or pos_order_record.cr_fe_document_kind != "electronic_ticket":
+    def _ensure_fe_invoice_and_sign(self, pos_order_record):
+        """Genera factura POS y dispara firmado/envío para FE (factura/tiquete)."""
+        if not pos_order_record or pos_order_record.cr_fe_document_kind not in (
+            "electronic_ticket",
+            "electronic_invoice",
+        ):
             return
 
         if pos_order_record.state not in ("paid", "done", "invoiced"):
@@ -219,7 +222,7 @@ class PosOrder(models.Model):
             if not ui_order:
                 continue
             self._sync_fe_values_from_order_payload(order, ui_order)
-            self._ensure_ticket_invoice_and_sign(order)
+            self._ensure_fe_invoice_and_sign(order)
         return order_ids
 
     def _process_order(self, order, draft, existing_order=False, **kwargs):
@@ -244,6 +247,5 @@ class PosOrder(models.Model):
             return pos_order
         self._sync_fe_values_from_order_payload(pos_order_record, order)
 
-        if pos_order_record.cr_fe_document_kind == "electronic_ticket":
-            self._ensure_ticket_invoice_and_sign(pos_order_record)
+        self._ensure_fe_invoice_and_sign(pos_order_record)
         return pos_order
