@@ -3,7 +3,7 @@
     "summary": "Puente POS -> FE CR (Tiquete/Factura) reutilizando l10n_cr_einvoice",
     "version": "19.0.1.0.0",
     "category": "Point of Sale",
-    "author": "Rovinlr / Community",
+    "author": "FenixCr Solutions",
     "license": "LGPL-3",
     "depends": ["point_of_sale", "account", "l10n_cr_einvoice"],
     "data": [
