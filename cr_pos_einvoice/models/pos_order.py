@@ -7,6 +7,11 @@ from odoo.exceptions import UserError
 class PosOrder(models.Model):
     _inherit = "pos.order"
 
+    _CR_INTERNAL_ACTION_METHODS = {
+        "action_cr_send_hacienda",
+        "action_cr_check_hacienda_status",
+    }
+
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
     cr_fe_document_type = fields.Selection(
         [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica")],
@@ -211,8 +216,18 @@ class PosOrder(models.Model):
         if self._cr_run_first_available_method(send_methods):
             return
 
+        # First try: strict lookup for explicit send + hacienda methods.
         discovered = self._cr_discover_order_methods(required_keywords=("send", "hacienda"), optional_keywords=("xml", "elect", "tribut"))
         if self._cr_run_first_available_method(discovered):
+            return
+
+        # Fallback: some localizations expose only sign/xml/electronic actions.
+        broad_discovered = self._cr_discover_order_methods(
+            required_keywords=(),
+            optional_keywords=("send", "enviar", "sign", "xml", "hacienda", "elect", "tribut"),
+            excluded_keywords=("status", "estado", "check", "consult", "refresh", "get"),
+        )
+        if self._cr_run_first_available_method(broad_discovered):
             return
         raise UserError(_("No se encontró un método público de envío FE para pedidos POS."))
 
@@ -232,11 +247,21 @@ class PosOrder(models.Model):
         discovered = self._cr_discover_order_methods(required_keywords=("status",), optional_keywords=("hacienda", "tribut", "elect"))
         if self._cr_run_first_available_method(discovered):
             return
+
+        alt_discovered = self._cr_discover_order_methods(
+            required_keywords=(),
+            optional_keywords=("status", "estado", "consult", "hacienda", "xml", "tribut", "elect"),
+            excluded_keywords=("send", "enviar", "sign", "post"),
+        )
+        if self._cr_run_first_available_method(alt_discovered):
+            return
         raise UserError(_("No se encontró método público para consultar estado FE del pedido POS."))
 
     def _cr_run_first_available_method(self, method_names):
         self.ensure_one()
         for method_name in method_names:
+            if method_name in self._CR_INTERNAL_ACTION_METHODS:
+                continue
             if not hasattr(self, method_name):
                 continue
             method = getattr(self, method_name)
@@ -256,14 +281,18 @@ class PosOrder(models.Model):
                 return False
         return True
 
-    def _cr_discover_order_methods(self, required_keywords=(), optional_keywords=()):
+    def _cr_discover_order_methods(self, required_keywords=(), optional_keywords=(), excluded_keywords=()):
         self.ensure_one()
         matches = []
         for method_name in dir(type(self)):
             normalized = method_name.lower()
+            if method_name in self._CR_INTERNAL_ACTION_METHODS:
+                continue
             if not normalized.startswith(("action_", "button_")):
                 continue
             if required_keywords and not all(keyword in normalized for keyword in required_keywords):
+                continue
+            if excluded_keywords and any(keyword in normalized for keyword in excluded_keywords):
                 continue
             score = sum(1 for keyword in optional_keywords if keyword in normalized)
             matches.append((score, method_name))
