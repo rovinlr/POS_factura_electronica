@@ -1,3 +1,5 @@
+import inspect
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -199,11 +201,19 @@ class PosOrder(models.Model):
             "action_sign_and_send",
             "action_send_to_hacienda",
             "action_sign_xml",
+            "action_generate_xml",
+            "action_generate_fe_xml",
+            "action_create_xml",
+            "action_create_electronic_document",
+            "action_post_and_send",
+            "action_send_xml",
         ]
-        for method_name in send_methods:
-            if hasattr(self, method_name):
-                getattr(self, method_name)()
-                return
+        if self._cr_run_first_available_method(send_methods):
+            return
+
+        discovered = self._cr_discover_order_methods(required_keywords=("send", "hacienda"), optional_keywords=("xml", "elect", "tribut"))
+        if self._cr_run_first_available_method(discovered):
+            return
         raise UserError(_("No se encontró un método público de envío FE para pedidos POS."))
 
     def _cr_call_order_status_method(self):
@@ -213,12 +223,53 @@ class PosOrder(models.Model):
             "action_consult_hacienda",
             "action_get_hacienda_status",
             "action_refresh_hacienda_status",
+            "action_check_xml_status",
+            "action_get_xml_status",
         ]
-        for method_name in status_methods:
-            if hasattr(self, method_name):
-                getattr(self, method_name)()
-                return
+        if self._cr_run_first_available_method(status_methods):
+            return
+
+        discovered = self._cr_discover_order_methods(required_keywords=("status",), optional_keywords=("hacienda", "tribut", "elect"))
+        if self._cr_run_first_available_method(discovered):
+            return
         raise UserError(_("No se encontró método público para consultar estado FE del pedido POS."))
+
+    def _cr_run_first_available_method(self, method_names):
+        self.ensure_one()
+        for method_name in method_names:
+            if not hasattr(self, method_name):
+                continue
+            method = getattr(self, method_name)
+            if not callable(method):
+                continue
+            if self._cr_method_accepts_no_arguments(method):
+                method()
+                return True
+        return False
+
+    def _cr_method_accepts_no_arguments(self, method):
+        signature = inspect.signature(method)
+        for parameter in signature.parameters.values():
+            if parameter.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            if parameter.default is inspect._empty:
+                return False
+        return True
+
+    def _cr_discover_order_methods(self, required_keywords=(), optional_keywords=()):
+        self.ensure_one()
+        matches = []
+        for method_name in dir(type(self)):
+            normalized = method_name.lower()
+            if not normalized.startswith(("action_", "button_")):
+                continue
+            if required_keywords and not all(keyword in normalized for keyword in required_keywords):
+                continue
+            score = sum(1 for keyword in optional_keywords if keyword in normalized)
+            matches.append((score, method_name))
+
+        ordered = [name for _score, name in sorted(matches, key=lambda item: (-item[0], item[1]))]
+        return ordered
 
     def _cr_sync_fe_data_from_order(self, default_status=False):
         self.ensure_one()
@@ -248,7 +299,9 @@ class PosOrder(models.Model):
             [
                 ("res_model", "=", "pos.order"),
                 ("res_id", "=", self.id),
+                "|",
                 ("mimetype", "in", ["application/xml", "text/xml"]),
+                ("name", "ilike", ".xml"),
             ],
             order="id desc",
             limit=1,
