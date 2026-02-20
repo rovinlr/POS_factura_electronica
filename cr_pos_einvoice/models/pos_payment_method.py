@@ -4,6 +4,12 @@ from odoo import fields, models
 class PosPaymentMethod(models.Model):
     _inherit = "pos.payment.method"
 
+    cr_fe_enabled = fields.Boolean(
+        string="Usa facturación electrónica",
+        default=True,
+        help="Indica si este método de pago se usará para documentos de factura electrónica.",
+    )
+
     cr_fe_payment_method = fields.Selection(
         selection="_selection_l10n_cr_payment_method",
         string="CR FE Método de Pago",
@@ -27,3 +33,15 @@ class PosPaymentMethod(models.Model):
         if field and field.selection:
             return field.selection
         return []
+
+    def _cr_get_fe_payment_method_code(self):
+        self.ensure_one()
+        if not self.cr_fe_enabled:
+            return False
+        return self.cr_fe_payment_method
+
+    def _cr_get_fe_payment_condition_code(self):
+        self.ensure_one()
+        if not self.cr_fe_enabled:
+            return False
+        return self.cr_fe_payment_condition

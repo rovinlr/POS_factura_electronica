@@ -165,12 +165,20 @@ class PosOrder(models.Model):
     def _cr_pos_payment_method_code(self):
         self.ensure_one()
         method = self.payment_ids.mapped("payment_method_id")[:1]
-        return method.cr_fe_payment_method if method and "cr_fe_payment_method" in method._fields else False
+        if not method:
+            return False
+        if hasattr(method, "_cr_get_fe_payment_method_code"):
+            return method._cr_get_fe_payment_method_code()
+        return method.cr_fe_payment_method if "cr_fe_payment_method" in method._fields else False
 
     def _cr_pos_payment_condition_code(self):
         self.ensure_one()
         method = self.payment_ids.mapped("payment_method_id")[:1]
-        return method.cr_fe_payment_condition if method and "cr_fe_payment_condition" in method._fields else False
+        if not method:
+            return False
+        if hasattr(method, "_cr_get_fe_payment_condition_code"):
+            return method._cr_get_fe_payment_condition_code()
+        return method.cr_fe_payment_condition if "cr_fe_payment_condition" in method._fields else False
 
     def _cr_create_ticket_move_from_pos_order(self):
         self.ensure_one()
