@@ -7,8 +7,8 @@
         <field name="arch" type="xml">
             <xpath expr="//sheet/group" position="inside">
                 <group string="Factura electrónica CR 4.4">
-                    <field name="cr_fe_payment_method"/>
-                    <field name="cr_fe_payment_condition"/>
+                    <field name="fp_payment_method"/>
+                    <field name="fp_sale_condition"/>
                 </group>
             </xpath>
         </field>

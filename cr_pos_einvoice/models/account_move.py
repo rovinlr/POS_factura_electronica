@@ -45,7 +45,7 @@ class AccountMove(models.Model):
     def _cr_pos_enqueue_for_send(self, force=False):
         now = fields.Datetime.now()
         for move in self:
-            if move.state != "posted":
+            if move.state != "posted" or move.move_type not in ("out_invoice", "out_refund"):
                 continue
             if move.cr_pos_fe_state == "sent" and not force:
                 continue
@@ -61,8 +61,8 @@ class AccountMove(models.Model):
         self.ensure_one()
         if self.cr_pos_fe_state == "sent":
             return True
-        if self.state != "posted":
-            raise UserError(_("Solo se pueden enviar documentos publicados."))
+        if self.state != "posted" or self.move_type not in ("out_invoice", "out_refund"):
+            raise UserError(_("Solo se pueden enviar facturas de cliente publicadas."))
 
         self.write({"cr_pos_fe_state": "sending"})
         try:
@@ -153,6 +153,7 @@ class AccountMove(models.Model):
         domain = [
             ("cr_pos_fe_state", "in", ["to_send", "error"]),
             ("state", "=", "posted"),
+            ("move_type", "in", ["out_invoice", "out_refund"]),
             "|",
             ("cr_pos_fe_next_try", "=", False),
             ("cr_pos_fe_next_try", "<=", fields.Datetime.now()),
