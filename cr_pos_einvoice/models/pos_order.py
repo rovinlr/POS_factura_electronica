@@ -295,6 +295,8 @@ class PosOrder(models.Model):
             if excluded_keywords and any(keyword in normalized for keyword in excluded_keywords):
                 continue
             score = sum(1 for keyword in optional_keywords if keyword in normalized)
+            if not required_keywords and optional_keywords and score == 0:
+                continue
             matches.append((score, method_name))
 
         ordered = [name for _score, name in sorted(matches, key=lambda item: (-item[0], item[1]))]
