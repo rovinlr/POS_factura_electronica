@@ -164,6 +164,8 @@ class PosOrder(models.Model):
 
     def _cr_pos_payment_method_code(self):
         self.ensure_one()
+        if self.config_id and not self.config_id.cr_fe_enabled:
+            return False
         method = self.payment_ids.mapped("payment_method_id")[:1]
         if not method:
             return False
@@ -173,6 +175,8 @@ class PosOrder(models.Model):
 
     def _cr_pos_payment_condition_code(self):
         self.ensure_one()
+        if self.config_id and not self.config_id.cr_fe_enabled:
+            return False
         method = self.payment_ids.mapped("payment_method_id")[:1]
         if not method:
             return False
@@ -235,6 +239,9 @@ class PosOrder(models.Model):
     def _cr_process_after_payment(self):
         for order in self:
             if order.state not in ("paid", "done", "invoiced"):
+                continue
+            if order.config_id and not order.config_id.cr_fe_enabled:
+                order.cr_fe_status = "not_applicable"
                 continue
             if order.account_move:
                 order._cr_prepare_invoice_fe_values(order.account_move)
