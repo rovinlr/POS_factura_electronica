@@ -9,7 +9,7 @@ class AccountMove(models.Model):
 
     cr_pos_order_id = fields.Many2one("pos.order", string="Pedido POS FE", index=True, copy=False)
     cr_pos_document_type = fields.Selection(
-        [("ticket", "Tiquete Electrónico"), ("invoice", "Factura Electrónica")],
+        [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica")],
         string="Documento FE POS",
         copy=False,
     )
