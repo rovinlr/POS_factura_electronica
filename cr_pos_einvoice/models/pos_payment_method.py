@@ -21,6 +21,12 @@ DEFAULT_CR_FE_PAYMENT_CONDITIONS = [
 class PosPaymentMethod(models.Model):
     _inherit = "pos.payment.method"
 
+    cr_fe_enabled = fields.Boolean(
+        string="Usa facturación electrónica",
+        default=True,
+        help="Indica si este método de pago se usará para documentos de factura electrónica.",
+    )
+
     cr_fe_payment_method = fields.Selection(
         selection="_selection_l10n_cr_payment_method",
         string="CR FE Método de Pago",
