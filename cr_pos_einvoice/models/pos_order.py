@@ -7,6 +7,11 @@ from odoo.exceptions import UserError
 class PosOrder(models.Model):
     _inherit = "pos.order"
 
+    _CR_INTERNAL_ACTION_METHODS = {
+        "action_cr_send_hacienda",
+        "action_cr_check_hacienda_status",
+    }
+
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
     cr_fe_document_type = fields.Selection(
         [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica")],
@@ -237,6 +242,8 @@ class PosOrder(models.Model):
     def _cr_run_first_available_method(self, method_names):
         self.ensure_one()
         for method_name in method_names:
+            if method_name in self._CR_INTERNAL_ACTION_METHODS:
+                continue
             if not hasattr(self, method_name):
                 continue
             method = getattr(self, method_name)
