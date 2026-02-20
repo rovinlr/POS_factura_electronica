@@ -7,7 +7,7 @@ class PosOrder(models.Model):
 
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
     cr_fe_document_type = fields.Selection(
-        [("ticket", "Tiquete Electrónico"), ("invoice", "Factura Electrónica")],
+        [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica")],
         string="Tipo documento FE",
         compute="_compute_cr_fe_document_type",
         store=True,
@@ -30,7 +30,22 @@ class PosOrder(models.Model):
     @api.depends("account_move", "cr_ticket_move_id")
     def _compute_cr_fe_document_type(self):
         for order in self:
-            order.cr_fe_document_type = "invoice" if order.account_move else "ticket" if order.cr_ticket_move_id else False
+            order.cr_fe_document_type = "fe" if order.account_move else "te" if order.cr_ticket_move_id else False
+
+
+    def action_cr_open_fe_document(self):
+        self.ensure_one()
+        move = self._cr_get_target_fe_move(create_if_missing=False)
+        if not move:
+            raise UserError(_("No hay documento FE asociado al pedido."))
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Documento Electrónico"),
+            "res_model": "account.move",
+            "view_mode": "form",
+            "res_id": move.id,
+            "target": "current",
+        }
 
     def action_cr_send_hacienda(self):
         for order in self:
@@ -61,10 +76,28 @@ class PosOrder(models.Model):
 
     def _cr_prepare_ticket_partner(self):
         self.ensure_one()
-        partner = self.partner_id
+        if self.partner_id:
+            return self.partner_id
+
+        partner = self.env["res.partner"].search(
+            [
+                ("name", "=", "Cliente de contado"),
+                "|",
+                ("company_id", "=", self.company_id.id),
+                ("company_id", "=", False),
+            ],
+            limit=1,
+        )
         if partner:
             return partner
-        return self.company_id.partner_id
+
+        return self.env["res.partner"].create(
+            {
+                "name": "Cliente de contado",
+                "company_id": self.company_id.id,
+                "country_id": self.company_id.country_id.id,
+            }
+        )
 
     def _cr_prepare_ticket_move_vals(self):
         self.ensure_one()
@@ -108,19 +141,26 @@ class PosOrder(models.Model):
             "company_id": self.company_id.id,
             "ref": f"POS Ticket {self.name}",
             "cr_pos_order_id": self.id,
-            "cr_pos_document_type": "ticket",
+            "cr_pos_document_type": "te",
             "cr_pos_fe_state": "to_send",
         }
 
-        field_mapping = {
-            "l10n_cr_payment_method": self._cr_pos_payment_method_code(),
-            "l10n_cr_payment_condition": self._cr_pos_payment_condition_code(),
-            "l10n_cr_fe_document_kind": "electronic_ticket",
-        }
+        field_mapping = self._cr_get_fe_field_mapping("te")
         for field_name, value in field_mapping.items():
             if field_name in self.env["account.move"]._fields and value:
                 vals[field_name] = value
         return vals
+
+
+    def _cr_get_fe_field_mapping(self, document_type):
+        self.ensure_one()
+        mapping = {
+            "l10n_cr_payment_method": self._cr_pos_payment_method_code(),
+            "l10n_cr_payment_condition": self._cr_pos_payment_condition_code(),
+            "l10n_cr_fe_document_kind": "electronic_ticket" if document_type == "te" else "electronic_invoice",
+            "fp_document_type": "TE" if document_type == "te" else "FE",
+        }
+        return mapping
 
     def _cr_pos_payment_method_code(self):
         self.ensure_one()
@@ -140,7 +180,7 @@ class PosOrder(models.Model):
         existing = self.env["account.move"].search(
             [
                 ("cr_pos_order_id", "=", self.id),
-                ("cr_pos_document_type", "=", "ticket"),
+                ("cr_pos_document_type", "=", "te"),
                 ("state", "!=", "cancel"),
             ],
             limit=1,
@@ -199,14 +239,10 @@ class PosOrder(models.Model):
     def _cr_prepare_invoice_fe_values(self, invoice):
         vals = {
             "cr_pos_order_id": self.id,
-            "cr_pos_document_type": "invoice",
+            "cr_pos_document_type": "fe",
             "cr_pos_fe_state": "to_send",
         }
-        field_mapping = {
-            "l10n_cr_payment_method": self._cr_pos_payment_method_code(),
-            "l10n_cr_payment_condition": self._cr_pos_payment_condition_code(),
-            "l10n_cr_fe_document_kind": "electronic_invoice",
-        }
+        field_mapping = self._cr_get_fe_field_mapping("fe")
         for field_name, value in field_mapping.items():
             if field_name in invoice._fields and value:
                 vals[field_name] = value

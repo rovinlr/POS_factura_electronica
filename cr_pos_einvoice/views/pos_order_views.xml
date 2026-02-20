@@ -6,8 +6,9 @@
         <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
-                <button name="action_cr_send_hacienda" type="object" string="Send to Hacienda" class="btn-primary"/>
-                <button name="action_cr_check_hacienda_status" type="object" string="Check Hacienda status"/>
+                <button name="action_cr_send_hacienda" type="object" string="Enviar a Hacienda" class="btn-primary"/>
+                <button name="action_cr_check_hacienda_status" type="object" string="Consultar estado Hacienda"/>
+                <button name="action_cr_open_fe_document" type="object" string="Abrir comprobante electrónico"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Factura Electrónica (CR)">
@@ -16,6 +17,7 @@
                             <field name="cr_fe_document_type" readonly="1"/>
                             <field name="cr_fe_clave" readonly="1"/>
                             <field name="cr_fe_status" readonly="1"/>
+                            <field name="account_move" readonly="1"/>
                             <field name="cr_ticket_move_id" readonly="1"/>
                         </group>
                     </group>
