@@ -1,4 +1,5 @@
 import inspect
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -6,6 +7,8 @@ from odoo.exceptions import UserError
 
 class PosOrder(models.Model):
     _inherit = "pos.order"
+
+    _CR_INVOICE_MOVE_TYPES = ("out_invoice", "out_refund")
 
     _CR_INTERNAL_ACTION_METHODS = {
         "action_cr_send_hacienda",
@@ -33,11 +36,15 @@ class PosOrder(models.Model):
         copy=False,
     )
     cr_fe_xml_attachment_id = fields.Many2one("ir.attachment", string="XML FE", copy=False)
+    cr_fe_retry_count = fields.Integer(string="Reintentos FE", default=0, copy=False)
+    cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
+    cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
+    cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
 
     @api.depends("account_move", "state")
     def _compute_cr_fe_document_type(self):
         for order in self:
-            if order.account_move:
+            if order.account_move and order.account_move.move_type in self._CR_INVOICE_MOVE_TYPES:
                 order.cr_fe_document_type = "fe"
             elif order.state in ("paid", "done", "invoiced"):
                 order.cr_fe_document_type = "te"
@@ -68,13 +75,25 @@ class PosOrder(models.Model):
             order._cr_check_hacienda_status()
         return True
 
+    def _cr_get_real_invoice_move(self):
+        self.ensure_one()
+        move = self.account_move
+        if move and move.move_type in self._CR_INVOICE_MOVE_TYPES and move.state != "cancel":
+            return move
+        return self.env["account.move"]
+
     def _cr_get_target_fe_move(self):
         self.ensure_one()
-        if self.account_move:
-            return self.account_move
+        real_invoice = self._cr_get_real_invoice_move()
+        if real_invoice:
+            return real_invoice
         if self.cr_ticket_move_id and self.cr_ticket_move_id.state != "cancel":
             return self.cr_ticket_move_id
         return self.env["account.move"]
+
+    def _cr_is_ticket_applicable(self):
+        self.ensure_one()
+        return not bool(self._cr_get_real_invoice_move())
 
     def _cr_send_to_hacienda(self, force=True):
         self.ensure_one()
@@ -96,33 +115,44 @@ class PosOrder(models.Model):
     def _cr_get_fe_field_mapping(self, document_type):
         self.ensure_one()
         mapping = {
-            "l10n_cr_payment_method": self._cr_pos_payment_method_code(),
-            "l10n_cr_payment_condition": self._cr_pos_payment_condition_code(),
+            "fp_payment_method": self._cr_pos_payment_method_code(),
+            "fp_sale_condition": self._cr_pos_payment_condition_code(),
             "l10n_cr_fe_document_kind": "electronic_ticket" if document_type == "te" else "electronic_invoice",
             "fp_document_type": "TE" if document_type == "te" else "FE",
         }
         return mapping
 
+    def _cr_get_primary_payment_method(self):
+        self.ensure_one()
+        if not self.payment_ids:
+            return self.env["pos.payment.method"]
+        payment = self.payment_ids.sorted(key=lambda p: (-abs(p.amount), p.id))[0]
+        return payment.payment_method_id
+
     def _cr_pos_payment_method_code(self):
         self.ensure_one()
         if self.config_id and not self.config_id.cr_fe_enabled:
             return False
-        method = self.payment_ids.mapped("payment_method_id")[:1]
+        method = self._cr_get_primary_payment_method()
         if not method:
             return False
         if hasattr(method, "_cr_get_fe_payment_method_code"):
             return method._cr_get_fe_payment_method_code()
+        if "fp_payment_method" in method._fields:
+            return method.fp_payment_method
         return method.cr_fe_payment_method if "cr_fe_payment_method" in method._fields else False
 
     def _cr_pos_payment_condition_code(self):
         self.ensure_one()
         if self.config_id and not self.config_id.cr_fe_enabled:
             return False
-        method = self.payment_ids.mapped("payment_method_id")[:1]
+        method = self._cr_get_primary_payment_method()
         if not method:
             return False
         if hasattr(method, "_cr_get_fe_payment_condition_code"):
             return method._cr_get_fe_payment_condition_code()
+        if "fp_sale_condition" in method._fields:
+            return method.fp_sale_condition
         return method.cr_fe_payment_condition if "cr_fe_payment_condition" in method._fields else False
 
     @api.model
@@ -157,12 +187,29 @@ class PosOrder(models.Model):
             if order.config_id and not order.config_id.cr_fe_enabled:
                 order.cr_fe_status = "not_applicable"
                 continue
-            if order.account_move:
-                order._cr_prepare_invoice_fe_values(order.account_move)
-                order.account_move._cr_pos_enqueue_for_send()
-                order.cr_fe_status = order.account_move.cr_pos_fe_state
-            else:
-                order._cr_send_ticket_from_order()
+
+            invoice = order._cr_get_real_invoice_move()
+            if invoice:
+                order._cr_prepare_invoice_fe_values(invoice)
+                order.cr_fe_status = invoice.cr_pos_fe_state
+                continue
+
+            if order.cr_fe_status == "sent":
+                continue
+            order._cr_enqueue_ticket_for_send()
+
+    def _cr_enqueue_ticket_for_send(self, force=False):
+        now = fields.Datetime.now()
+        for order in self:
+            if not order._cr_is_ticket_applicable():
+                continue
+            if order.cr_fe_status == "sent" and not force:
+                continue
+            order.write({
+                "cr_fe_status": "to_send",
+                "cr_fe_next_try": now,
+                "cr_fe_last_error": False,
+            })
 
     def _cr_prepare_invoice_fe_values(self, invoice):
         vals = {
@@ -178,16 +225,33 @@ class PosOrder(models.Model):
 
     def _cr_send_ticket_from_order(self):
         self.ensure_one()
+        if not self._cr_is_ticket_applicable():
+            raise UserError(_("La orden ya tiene factura de cliente: la FE debe emitirse únicamente desde account.move."))
         if self.state not in ("paid", "done", "invoiced"):
             return False
+        if self.cr_fe_status == "sent":
+            return True
 
         self.write({"cr_fe_status": "sending"})
         try:
             self._cr_call_order_send_method()
             self._cr_sync_fe_data_from_order(default_status="sent")
+            self.write({
+                "cr_fe_retry_count": 0,
+                "cr_fe_last_error": False,
+                "cr_fe_next_try": False,
+                "cr_fe_last_send_date": fields.Datetime.now(),
+            })
             return True
         except Exception as error:  # noqa: BLE001
-            self.write({"cr_fe_status": "error"})
+            retries = self.cr_fe_retry_count + 1
+            next_try = fields.Datetime.now() + timedelta(minutes=min(60, retries * 5))
+            self.write({
+                "cr_fe_status": "error",
+                "cr_fe_retry_count": retries,
+                "cr_fe_last_error": str(error),
+                "cr_fe_next_try": next_try,
+            })
             message_post = getattr(self, "message_post", False)
             if message_post:
                 message_post(body=_("Error al enviar tiquete FE a Hacienda: %s") % str(error))
@@ -348,3 +412,17 @@ class PosOrder(models.Model):
                 "cr_fe_xml_attachment_id": xml_attachment.id or False,
             }
         )
+
+    @api.model
+    def _cron_cr_pos_send_pending_tickets(self, limit=50):
+        domain = [
+            ("state", "in", ["paid", "done", "invoiced"]),
+            ("cr_fe_status", "in", ["to_send", "error"]),
+            "|",
+            ("cr_fe_next_try", "=", False),
+            ("cr_fe_next_try", "<=", fields.Datetime.now()),
+        ]
+        to_send = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        for order in to_send:
+            order._cr_send_ticket_from_order()
+        return True
