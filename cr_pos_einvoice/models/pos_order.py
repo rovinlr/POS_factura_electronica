@@ -27,17 +27,21 @@ class PosOrder(models.Model):
     )
     cr_fe_xml_attachment_id = fields.Many2one("ir.attachment", string="XML FE", copy=False)
 
-    @api.depends("account_move", "cr_ticket_move_id")
+    @api.depends("account_move", "state")
     def _compute_cr_fe_document_type(self):
         for order in self:
-            order.cr_fe_document_type = "fe" if order.account_move else "te" if order.cr_ticket_move_id else False
-
+            if order.account_move:
+                order.cr_fe_document_type = "fe"
+            elif order.state in ("paid", "done", "invoiced"):
+                order.cr_fe_document_type = "te"
+            else:
+                order.cr_fe_document_type = False
 
     def action_cr_open_fe_document(self):
         self.ensure_one()
-        move = self._cr_get_target_fe_move(create_if_missing=False)
+        move = self._cr_get_target_fe_move()
         if not move:
-            raise UserError(_("No hay documento FE asociado al pedido."))
+            raise UserError(_("El tiquete FE se genera desde el pedido POS y no crea movimiento contable."))
         return {
             "type": "ir.actions.act_window",
             "name": _("Documento Electrónico"),
@@ -49,108 +53,38 @@ class PosOrder(models.Model):
 
     def action_cr_send_hacienda(self):
         for order in self:
-            move = order._cr_get_target_fe_move(create_if_missing=True)
-            if not move:
-                continue
-            move._cr_pos_enqueue_for_send(force=True)
-            move._cr_pos_send_to_hacienda()
+            order._cr_send_to_hacienda()
         return True
 
     def action_cr_check_hacienda_status(self):
         for order in self:
-            move = order._cr_get_target_fe_move(create_if_missing=False)
-            if not move:
-                raise UserError(_("No hay documento FE asociado al pedido."))
-            move._cr_pos_check_hacienda_status()
+            order._cr_check_hacienda_status()
         return True
 
-    def _cr_get_target_fe_move(self, create_if_missing=False):
+    def _cr_get_target_fe_move(self):
         self.ensure_one()
         if self.account_move:
             return self.account_move
-        if self.cr_ticket_move_id:
+        if self.cr_ticket_move_id and self.cr_ticket_move_id.state != "cancel":
             return self.cr_ticket_move_id
-        if create_if_missing and self.state in ("paid", "done", "invoiced"):
-            return self._cr_create_ticket_move_from_pos_order()
         return self.env["account.move"]
 
-    def _cr_prepare_ticket_partner(self):
+    def _cr_send_to_hacienda(self, force=True):
         self.ensure_one()
-        if self.partner_id:
-            return self.partner_id
+        move = self._cr_get_target_fe_move()
+        if move:
+            move._cr_pos_enqueue_for_send(force=force)
+            move._cr_pos_send_to_hacienda()
+            return
+        self._cr_send_ticket_from_order()
 
-        partner = self.env["res.partner"].search(
-            [
-                ("name", "=", "Cliente de contado"),
-                "|",
-                ("company_id", "=", self.company_id.id),
-                ("company_id", "=", False),
-            ],
-            limit=1,
-        )
-        if partner:
-            return partner
-
-        return self.env["res.partner"].create(
-            {
-                "name": "Cliente de contado",
-                "company_id": self.company_id.id,
-                "country_id": self.company_id.country_id.id,
-            }
-        )
-
-    def _cr_prepare_ticket_move_vals(self):
+    def _cr_check_hacienda_status(self):
         self.ensure_one()
-        currency = self.pricelist_id.currency_id or self.currency_id or self.company_id.currency_id
-        partner = self._cr_prepare_ticket_partner()
-        move_type_selection = self.env["account.move"]._fields["move_type"].selection
-        selection_keys = [item[0] for item in move_type_selection] if move_type_selection else []
-        move_type = "out_receipt" if "out_receipt" in selection_keys else "out_invoice"
-
-        line_commands = []
-        for line in self.lines:
-            income_account = (
-                line.product_id.property_account_income_id
-                or line.product_id.categ_id.property_account_income_categ_id
-            )
-            line_commands.append(
-                (
-                    0,
-                    0,
-                    {
-                        "name": line.full_product_name or line.product_id.display_name,
-                        "product_id": line.product_id.id,
-                        "quantity": line.qty,
-                        "price_unit": line.price_unit,
-                        "discount": line.discount,
-                        "tax_ids": [(6, 0, line.tax_ids.ids)],
-                        "account_id": income_account.id,
-                    },
-                )
-            )
-
-        vals = {
-            "move_type": move_type,
-            "partner_id": partner.id,
-            "currency_id": currency.id,
-            "invoice_origin": self.name,
-            "invoice_payment_term_id": False,
-            "invoice_user_id": self.user_id.id,
-            "invoice_date": fields.Date.context_today(self),
-            "invoice_line_ids": line_commands,
-            "company_id": self.company_id.id,
-            "ref": f"POS Ticket {self.name}",
-            "cr_pos_order_id": self.id,
-            "cr_pos_document_type": "te",
-            "cr_pos_fe_state": "to_send",
-        }
-
-        field_mapping = self._cr_get_fe_field_mapping("te")
-        for field_name, value in field_mapping.items():
-            if field_name in self.env["account.move"]._fields and value:
-                vals[field_name] = value
-        return vals
-
+        move = self._cr_get_target_fe_move()
+        if move:
+            move._cr_pos_check_hacienda_status()
+            return
+        self._cr_check_ticket_status_from_order()
 
     def _cr_get_fe_field_mapping(self, document_type):
         self.ensure_one()
@@ -183,33 +117,6 @@ class PosOrder(models.Model):
         if hasattr(method, "_cr_get_fe_payment_condition_code"):
             return method._cr_get_fe_payment_condition_code()
         return method.cr_fe_payment_condition if "cr_fe_payment_condition" in method._fields else False
-
-    def _cr_create_ticket_move_from_pos_order(self):
-        self.ensure_one()
-        if self.cr_ticket_move_id:
-            return self.cr_ticket_move_id
-
-        existing = self.env["account.move"].search(
-            [
-                ("cr_pos_order_id", "=", self.id),
-                ("cr_pos_document_type", "=", "te"),
-                ("state", "!=", "cancel"),
-            ],
-            limit=1,
-        )
-        if existing:
-            self.cr_ticket_move_id = existing
-            return existing
-
-        move = self.env["account.move"].with_company(self.company_id).create(self._cr_prepare_ticket_move_vals())
-        move.action_post()
-        self.write(
-            {
-                "cr_ticket_move_id": move.id,
-                "cr_fe_status": "to_send",
-            }
-        )
-        return move
 
     @api.model
     def create_from_ui(self, orders, draft=False):
@@ -248,8 +155,7 @@ class PosOrder(models.Model):
                 order.account_move._cr_pos_enqueue_for_send()
                 order.cr_fe_status = order.account_move.cr_pos_fe_state
             else:
-                ticket_move = order._cr_create_ticket_move_from_pos_order()
-                ticket_move._cr_pos_enqueue_for_send()
+                order._cr_send_ticket_from_order()
 
     def _cr_prepare_invoice_fe_values(self, invoice):
         vals = {
@@ -262,3 +168,99 @@ class PosOrder(models.Model):
             if field_name in invoice._fields and value:
                 vals[field_name] = value
         invoice.write(vals)
+
+    def _cr_send_ticket_from_order(self):
+        self.ensure_one()
+        if self.state not in ("paid", "done", "invoiced"):
+            return False
+
+        self.write({"cr_fe_status": "sending"})
+        try:
+            self._cr_call_order_send_method()
+            self._cr_sync_fe_data_from_order(default_status="sent")
+            return True
+        except Exception as error:  # noqa: BLE001
+            self.write({"cr_fe_status": "error"})
+            message_post = getattr(self, "message_post", False)
+            if message_post:
+                message_post(body=_("Error al enviar tiquete FE a Hacienda: %s") % str(error))
+            return False
+
+    def _cr_check_ticket_status_from_order(self):
+        self.ensure_one()
+        self._cr_call_order_status_method()
+        self._cr_sync_fe_data_from_order()
+        return True
+
+    def _cr_call_order_send_method(self):
+        self.ensure_one()
+        send_methods = [
+            "action_post_sign_pos_order",
+            "action_sign_and_send",
+            "action_send_to_hacienda",
+            "action_sign_xml",
+        ]
+        for method_name in send_methods:
+            if hasattr(self, method_name):
+                getattr(self, method_name)()
+                return
+        raise UserError(_("No se encontró un método público de envío FE para pedidos POS."))
+
+    def _cr_call_order_status_method(self):
+        self.ensure_one()
+        status_methods = [
+            "action_check_hacienda_status",
+            "action_consult_hacienda",
+            "action_get_hacienda_status",
+            "action_refresh_hacienda_status",
+        ]
+        for method_name in status_methods:
+            if hasattr(self, method_name):
+                getattr(self, method_name)()
+                return
+        raise UserError(_("No se encontró método público para consultar estado FE del pedido POS."))
+
+    def _cr_sync_fe_data_from_order(self, default_status=False):
+        self.ensure_one()
+        status = default_status or self.cr_fe_status
+        for candidate in (
+            "l10n_cr_hacienda_status",
+            "l10n_cr_state_tributacion",
+            "l10n_cr_status",
+            "state_tributacion",
+        ):
+            if candidate in self._fields and self[candidate]:
+                status = self[candidate]
+                break
+
+        clave = self.cr_fe_clave
+        for candidate in (
+            "l10n_cr_clave",
+            "l10n_cr_einvoice_key",
+            "l10n_cr_numero_consecutivo",
+            "number_electronic",
+        ):
+            if candidate in self._fields and self[candidate]:
+                clave = self[candidate]
+                break
+
+        xml_attachment = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "pos.order"),
+                ("res_id", "=", self.id),
+                ("mimetype", "in", ["application/xml", "text/xml"]),
+            ],
+            order="id desc",
+            limit=1,
+        )
+
+        allowed_statuses = {item[0] for item in self._fields["cr_fe_status"].selection}
+        normalized_status = status if status in allowed_statuses else ("sent" if default_status else self.cr_fe_status)
+
+        self.write(
+            {
+                "cr_fe_status": normalized_status,
+                "cr_fe_clave": clave,
+                "cr_fe_xml_attachment_id": xml_attachment.id or False,
+            }
+        )
