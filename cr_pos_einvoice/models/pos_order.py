@@ -42,13 +42,10 @@ class PosOrder(models.Model):
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
     cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
 
-    _sql_constraints = [
-        (
-            "cr_pos_einvoice_idempotency_key_unique",
-            "unique(company_id, cr_fe_idempotency_key)",
-            "La clave de idempotencia FE debe ser única por compañía.",
-        )
-    ]
+    _cr_pos_einvoice_idempotency_key_unique = models.Constraint(
+        "unique(company_id, cr_fe_idempotency_key)",
+        "La clave de idempotencia FE debe ser única por compañía.",
+    )
 
     @api.depends("account_move", "state", "amount_total")
     def _compute_cr_fe_document_type(self):
