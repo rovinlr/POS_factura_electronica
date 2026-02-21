@@ -165,16 +165,25 @@ class AccountMove(models.Model):
             )
 
     @api.model
-    def _cron_cr_pos_send_pending_documents(self, limit=50):
-        domain = [
-            ("cr_pos_fe_state", "in", ["to_send", "error"]),
-            ("state", "=", "posted"),
-            ("move_type", "in", ["out_invoice", "out_refund"]),
-            "|",
-            ("cr_pos_fe_next_try", "=", False),
-            ("cr_pos_fe_next_try", "<=", fields.Datetime.now()),
-        ]
-        to_send = self.search(domain, limit=limit, order="cr_pos_fe_next_try asc, id asc")
-        for move in to_send:
-            move._cr_pos_send_to_hacienda()
-        return True
+    def _cr_einvoice_get_send_targets(self, limit=50):
+        targets = list(super()._cr_einvoice_get_send_targets(limit=limit))
+        pending_tickets = self.env["pos.order"]._cr_get_pending_send_ticket_targets(limit=limit)
+        return targets + pending_tickets
+
+    @api.model
+    def _cr_einvoice_get_status_targets(self, limit=50):
+        targets = list(super()._cr_einvoice_get_status_targets(limit=limit))
+        pending_tickets = self.env["pos.order"]._cr_get_pending_status_ticket_targets(limit=limit)
+        return targets + pending_tickets
+
+    @api.model
+    def _cr_einvoice_process_send_target(self, target, target_type):
+        if target_type == "pos_ticket":
+            return target._cr_send_ticket_from_order()
+        return super()._cr_einvoice_process_send_target(target, target_type)
+
+    @api.model
+    def _cr_einvoice_process_status_target(self, target, target_type):
+        if target_type == "pos_ticket":
+            return target._cr_check_ticket_status_from_order()
+        return super()._cr_einvoice_process_status_target(target, target_type)

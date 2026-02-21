@@ -279,3 +279,31 @@ Reglas:
 3. **Asincronía obligatoria en TE POS** para no bloquear caja.
 4. **Idempotencia fuerte por clave estable + unique SQL** para escenarios offline/replay.
 5. **Compatibilidad nativa Odoo 19**: no altera `session_move_id` ni contabilidad de sesión.
+
+## H) Integración opcional por hooks de cron (implementado)
+
+Para mantener cero impacto en instalaciones sin POS, se agregaron hooks en `l10n_cr_einvoice` sobre `account.move`:
+
+- `_cr_einvoice_get_send_targets(limit=50) -> list[(record, target_type)]`
+  - Base retorna solo `[(account.move, "move")]` pendientes de envío.
+- `_cr_einvoice_get_status_targets(limit=50) -> list[(record, target_type)]`
+  - Base retorna solo `[(account.move, "move")]` pendientes de consulta.
+- `_cr_einvoice_process_send_target(target, target_type) -> bool`
+  - Base procesa `target_type == "move"` con el flujo FE actual de facturas.
+- `_cr_einvoice_process_status_target(target, target_type) -> bool`
+  - Base procesa `target_type == "move"` con consulta de estado actual.
+
+Cron base (sin cambios de objetivo funcional):
+
+- `_cron_cr_einvoice_send_pending_documents(limit=50)`
+- `_cron_cr_einvoice_check_pending_status(limit=50)`
+
+`cr_pos_einvoice` hereda los hooks y agrega `target_type == "pos_ticket"` con `pos.order` pendientes TE, sin crear cron extra:
+
+- Envío TE: `pos.order._cr_send_ticket_from_order()`
+- Consulta TE: `pos.order._cr_check_ticket_status_from_order()`
+
+Con esto:
+
+- Sin `cr_pos_einvoice`: el hook no agrega targets y el cron base sigue igual.
+- Con `cr_pos_einvoice`: se amplía la cola del cron base con tickets POS, reutilizando motor FE y sin duplicar XML/envío/parseo.
