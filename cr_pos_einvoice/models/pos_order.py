@@ -30,6 +30,10 @@ class PosOrder(models.Model):
         "action_cr_send_hacienda",
         "action_cr_check_hacienda_status",
     }
+    _CR_EXCLUDED_DISCOVERY_METHODS = {
+        "action_archive",
+        "action_unarchive",
+    }
 
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
     cr_fe_document_type = fields.Selection(
@@ -104,8 +108,9 @@ class PosOrder(models.Model):
         attachment_model = self.env["ir.attachment"]
         for order in self:
             domains = [[("res_model", "=", "pos.order"), ("res_id", "=", order.id)]]
-            if order.account_move:
-                domains.append([("res_model", "=", "account.move"), ("res_id", "=", order.account_move.id)])
+            for move in (order.account_move, order.cr_ticket_move_id):
+                if move:
+                    domains.append([("res_model", "=", "account.move"), ("res_id", "=", move.id)])
 
             domain = ["|"] * (len(domains) - 1)
             for item in domains:
@@ -362,7 +367,7 @@ class PosOrder(models.Model):
     def _cr_run_first_available_method(self, method_names):
         self.ensure_one()
         for method_name in method_names:
-            if method_name in self._CR_INTERNAL_ACTION_METHODS:
+            if method_name in self._CR_INTERNAL_ACTION_METHODS or method_name in self._CR_EXCLUDED_DISCOVERY_METHODS:
                 continue
             if not hasattr(self, method_name):
                 continue
@@ -388,7 +393,7 @@ class PosOrder(models.Model):
         matches = []
         for method_name in dir(type(self)):
             normalized = method_name.lower()
-            if method_name in self._CR_INTERNAL_ACTION_METHODS:
+            if method_name in self._CR_INTERNAL_ACTION_METHODS or method_name in self._CR_EXCLUDED_DISCOVERY_METHODS:
                 continue
             if method_name.startswith("_"):
                 continue
@@ -399,11 +404,13 @@ class PosOrder(models.Model):
             if not callable(getattr(self, method_name, None)):
                 continue
 
-            score = sum(1 for keyword in optional_keywords if keyword in normalized)
+            keyword_score = sum(1 for keyword in optional_keywords if keyword in normalized)
+            if not required_keywords and optional_keywords and keyword_score == 0:
+                continue
+
+            score = keyword_score
             if normalized.startswith(("action_", "button_")):
                 score += 100
-            if not required_keywords and optional_keywords and score == 0:
-                continue
             matches.append((score, method_name))
 
         ordered = [name for _score, name in sorted(matches, key=lambda item: (-item[0], item[1]))]
@@ -438,17 +445,7 @@ class PosOrder(models.Model):
                 consecutivo = self[candidate]
                 break
 
-        xml_attachment = self.env["ir.attachment"].search(
-            [
-                ("res_model", "=", "pos.order"),
-                ("res_id", "=", self.id),
-                "|",
-                ("mimetype", "in", ["application/xml", "text/xml"]),
-                ("name", "ilike", ".xml"),
-            ],
-            order="id desc",
-            limit=1,
-        )
+        xml_attachment = self._cr_find_latest_xml_attachment()
 
         normalized_status = self._cr_normalize_hacienda_status(status, default_status=default_status)
 
@@ -470,6 +467,21 @@ class PosOrder(models.Model):
         if status in allowed_statuses:
             return status
         return "sent" if default_status else self.cr_fe_status
+
+    def _cr_find_latest_xml_attachment(self):
+        self.ensure_one()
+        domain_blocks = [[("res_model", "=", "pos.order"), ("res_id", "=", self.id)]]
+        for move in (self.account_move, self.cr_ticket_move_id):
+            if move:
+                domain_blocks.append([("res_model", "=", "account.move"), ("res_id", "=", move.id)])
+
+        relation_domain = ["|"] * (len(domain_blocks) - 1)
+        for block in domain_blocks:
+            relation_domain += block
+
+        xml_domain = ["|", ("mimetype", "in", ["application/xml", "text/xml"]), ("name", "ilike", ".xml")]
+        full_domain = relation_domain + xml_domain
+        return self.env["ir.attachment"].search(full_domain, order="id desc", limit=1)
 
     @api.model
     def _cron_cr_pos_send_pending_tickets(self, limit=50):
