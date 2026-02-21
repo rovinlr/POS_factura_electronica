@@ -1,4 +1,5 @@
 from datetime import timedelta
+from importlib import import_module
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -63,19 +64,45 @@ class PosOrder(models.Model):
         service_paths = [
             "odoo.addons.l10n_cr_einvoice.services.einvoice_service",
             "l10n_cr_einvoice.services.einvoice_service",
+            "odoo.addons.cr_pos_einvoice.services.einvoice_service_fallback",
+            "cr_pos_einvoice.services.einvoice_service_fallback",
         ]
         for service_path in service_paths:
             try:
-                module = __import__(service_path, fromlist=["EInvoiceService"])
+                module = import_module(service_path)
                 return module.EInvoiceService(self.env)
             except (ImportError, AttributeError):
                 continue
-        raise UserError(
-            _(
-                "No se pudo cargar EInvoiceService de l10n_cr_einvoice. "
-                "Verifique que el módulo base esté instalado y que exponga services/einvoice_service.py."
-            )
-        )
+        raise UserError(_("No se pudo inicializar el servicio de Factura Electrónica."))
+
+    def _cr_normalize_hacienda_status(self, status, default_status=False):
+        self.ensure_one()
+        normalized = (status or "").strip().lower()
+        mapping = {
+            "aceptado": "accepted",
+            "aceptada": "accepted",
+            "accepted": "accepted",
+            "aprobado": "accepted",
+            "approval": "accepted",
+            "rechazado": "rejected",
+            "rejected": "rejected",
+            "denegado": "rejected",
+            "error": "error",
+            "failed": "error",
+            "fallido": "error",
+            "enviado": "sent",
+            "sent": "sent",
+            "procesando": "sent",
+            "processing": "sent",
+            "pendiente": "to_send",
+            "to_send": "to_send",
+            "draft": "draft",
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        if default_status:
+            return "sent"
+        return self.cr_fe_status or "to_send"
 
     def _compute_cr_fe_attachment_ids(self):
         for order in self:
