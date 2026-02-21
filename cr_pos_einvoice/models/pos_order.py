@@ -255,7 +255,7 @@ class PosOrder(models.Model):
         return True
 
     @api.model
-    def _cron_cr_pos_send_pending_tickets(self, limit=50):
+    def _cr_get_pending_send_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
             ("cr_fe_status", "in", ["to_send", "error"]),
@@ -263,12 +263,11 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
-        for order in self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc"):
-            order._cr_send_ticket_from_order()
-        return True
+        orders = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        return [(order, "pos_ticket") for order in orders]
 
     @api.model
-    def _cron_cr_pos_check_pending_ticket_status(self, limit=50):
+    def _cr_get_pending_status_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
             ("cr_fe_status", "in", ["sent"]),
@@ -276,6 +275,5 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
-        for order in self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc"):
-            order._cr_check_ticket_status_from_order()
-        return True
+        orders = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        return [(order, "pos_ticket") for order in orders]
