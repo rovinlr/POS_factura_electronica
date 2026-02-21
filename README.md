@@ -17,6 +17,7 @@ Integración de **Punto de Venta en Odoo 19** con **`l10n_cr_einvoice`** (Costa 
 Ver propuesta detallada en:
 
 - `docs/arquitectura_pos_fe_cr_v44.md`
+- `docs/checklist_integracion_electroniccrinvoice.md`
 
 ## Instalación
 
