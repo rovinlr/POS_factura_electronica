@@ -3,7 +3,6 @@ from datetime import timedelta
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from odoo.addons.l10n_cr_einvoice.services.einvoice_service import EInvoiceService
 
 
 class PosOrder(models.Model):
@@ -63,7 +62,23 @@ class PosOrder(models.Model):
                 order.cr_fe_document_type = False
 
     def _cr_service(self):
-        return EInvoiceService(self.env)
+        """Resolve FE service without breaking module import at registry load time."""
+        service_paths = [
+            "odoo.addons.l10n_cr_einvoice.services.einvoice_service",
+            "l10n_cr_einvoice.services.einvoice_service",
+        ]
+        for service_path in service_paths:
+            try:
+                module = __import__(service_path, fromlist=["EInvoiceService"])
+                return module.EInvoiceService(self.env)
+            except (ImportError, AttributeError):
+                continue
+        raise UserError(
+            _(
+                "No se pudo cargar EInvoiceService de l10n_cr_einvoice. "
+                "Verifique que el módulo base esté instalado y que exponga services/einvoice_service.py."
+            )
+        )
 
     def _compute_cr_fe_attachment_ids(self):
         for order in self:
