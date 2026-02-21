@@ -41,31 +41,18 @@ class EInvoiceService:
         }
 
     def build_payload_from_pos_order(self, order):
+        """Normalize POS data into FE payload expected by the FE service.
+
+        `pos.order` uses a different data model than `account.move`.
+        This adapter converts POS lines/payments into a canonical payload so
+        XML/sign/send logic can stay centralized in l10n_cr_einvoice.
+        """
         lines = []
         for line in order.lines:
-            lines.append(
-                {
-                    "product_id": line.product_id.id,
-                    "name": line.full_product_name,
-                    "qty": line.qty,
-                    "price_unit": line.price_unit,
-                    "discount": line.discount,
-                    "tax_ids": line.tax_ids_after_fiscal_position.ids,
-                    "subtotal": line.price_subtotal,
-                    "total": line.price_subtotal_incl,
-                }
-            )
+            lines.append(self._map_pos_line_to_fe_line(line))
         payments = []
         for payment in order.payment_ids:
-            method = payment.payment_method_id
-            payments.append(
-                {
-                    "amount": payment.amount,
-                    "payment_method_id": method.id,
-                    "fp_payment_method": getattr(method, "fp_payment_method", False),
-                    "fp_sale_condition": getattr(method, "fp_sale_condition", False),
-                }
-            )
+            payments.append(self._map_pos_payment_to_fe_payment(payment))
         return {
             "source_model": "pos.order",
             "source_id": order.id,
@@ -79,6 +66,29 @@ class EInvoiceService:
             "total": order.amount_total,
             "lines": lines,
             "payments": payments,
+        }
+
+    def _map_pos_line_to_fe_line(self, line):
+        """Map `pos.order.line` fields to canonical FE line fields."""
+        return {
+            "product_id": line.product_id.id,
+            "name": line.full_product_name,
+            "qty": line.qty,
+            "price_unit": line.price_unit,
+            "discount": line.discount,
+            "tax_ids": line.tax_ids_after_fiscal_position.ids,
+            "subtotal": line.price_subtotal,
+            "total": line.price_subtotal_incl,
+        }
+
+    def _map_pos_payment_to_fe_payment(self, payment):
+        """Map `pos.payment` fields to canonical FE payment fields."""
+        method = payment.payment_method_id
+        return {
+            "amount": payment.amount,
+            "payment_method_id": method.id,
+            "fp_payment_method": getattr(method, "fp_payment_method", False),
+            "fp_sale_condition": getattr(method, "fp_sale_condition", False),
         }
 
     def ensure_idempotency(self, record, payload):
