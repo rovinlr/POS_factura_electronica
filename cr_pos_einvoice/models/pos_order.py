@@ -302,9 +302,27 @@ class PosOrder(models.Model):
 
     def _cr_check_ticket_status_from_order(self):
         self.ensure_one()
-        self._cr_call_order_status_method()
-        self._cr_sync_fe_data_from_order()
-        return True
+        try:
+            self._cr_call_order_status_method()
+            self._cr_sync_fe_data_from_order()
+            self.write(
+                {
+                    "cr_fe_last_error": False,
+                    "cr_fe_next_try": False,
+                }
+            )
+            return True
+        except Exception as error:  # noqa: BLE001
+            retries = self.cr_fe_retry_count + 1
+            next_try = fields.Datetime.now() + timedelta(minutes=min(60, retries * 5))
+            self.write(
+                {
+                    "cr_fe_retry_count": retries,
+                    "cr_fe_last_error": str(error),
+                    "cr_fe_next_try": next_try,
+                }
+            )
+            return False
 
     def _cr_call_order_send_method(self):
         self.ensure_one()
@@ -435,17 +453,25 @@ class PosOrder(models.Model):
             "l10n_cr_clave",
             "l10n_cr_einvoice_key",
             "number_electronic",
+            "numero_electronico",
+            "clave",
         ):
             if candidate in self._fields and self[candidate]:
                 clave = self[candidate]
                 break
 
-        for candidate in ("l10n_cr_numero_consecutivo", "l10n_latam_document_number"):
+        for candidate in (
+            "l10n_cr_numero_consecutivo",
+            "l10n_latam_document_number",
+            "number",
+            "consecutivo",
+            "numero_consecutivo",
+        ):
             if candidate in self._fields and self[candidate]:
                 consecutivo = self[candidate]
                 break
 
-        xml_attachment = self._cr_find_latest_xml_attachment()
+        xml_attachment = self._cr_find_latest_xml_attachment() or self._cr_create_xml_attachment_from_binary()
 
         normalized_status = self._cr_normalize_hacienda_status(status, default_status=default_status)
 
@@ -483,6 +509,47 @@ class PosOrder(models.Model):
         full_domain = relation_domain + xml_domain
         return self.env["ir.attachment"].search(full_domain, order="id desc", limit=1)
 
+    def _cr_create_xml_attachment_from_binary(self):
+        self.ensure_one()
+        binary_candidates = (
+            "xml_comprobante",
+            "xml_document",
+            "xml_signed",
+            "xml_firmado",
+        )
+        file_name_candidates = (
+            "fname_xml_comprobante",
+            "xml_file_name",
+            "xml_filename",
+            "xml_nombre_archivo",
+        )
+
+        binary_content = False
+        for field_name in binary_candidates:
+            if field_name in self._fields and self[field_name]:
+                binary_content = self[field_name]
+                break
+
+        if not binary_content:
+            return self.env["ir.attachment"]
+
+        file_name = False
+        for field_name in file_name_candidates:
+            if field_name in self._fields and self[field_name]:
+                file_name = self[field_name]
+                break
+
+        attachment = self.env["ir.attachment"].create(
+            {
+                "name": file_name or f"TE-{self.name or self.id}.xml",
+                "res_model": "pos.order",
+                "res_id": self.id,
+                "datas": binary_content,
+                "mimetype": "application/xml",
+            }
+        )
+        return attachment
+
     @api.model
     def _cron_cr_pos_send_pending_tickets(self, limit=50):
         domain = [
@@ -495,4 +562,18 @@ class PosOrder(models.Model):
         to_send = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
         for order in to_send:
             order._cr_send_ticket_from_order()
+        return True
+
+    @api.model
+    def _cron_cr_pos_check_pending_ticket_status(self, limit=50):
+        domain = [
+            ("state", "in", ["paid", "done", "invoiced"]),
+            ("cr_fe_status", "in", ["sending", "sent"]),
+            "|",
+            ("cr_fe_next_try", "=", False),
+            ("cr_fe_next_try", "<=", fields.Datetime.now()),
+        ]
+        to_check = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        for order in to_check:
+            order._cr_check_ticket_status_from_order()
         return True
