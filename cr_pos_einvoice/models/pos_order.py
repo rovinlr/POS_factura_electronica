@@ -264,10 +264,11 @@ class PosOrder(models.Model):
 
         self.write({"cr_fe_status": "to_send", "cr_fe_idempotency_key": payload["idempotency_key"]})
         try:
-            result = service.process_full_flow(self, payload, doc_type="te")
+            result = self._cr_send_ticket_via_l10n_service(service, payload)
+            normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
-                    "cr_fe_status": "accepted" if result.get("ok") else "error",
+                    "cr_fe_status": normalized_status if result.get("ok") else "error",
                     "cr_fe_retry_count": 0,
                     "cr_fe_last_error": False,
                     "cr_fe_next_try": False,
@@ -287,10 +288,61 @@ class PosOrder(models.Model):
             )
             return False
 
+    def _cr_send_ticket_via_l10n_service(self, service, payload):
+        """Delegate TE send to l10n_cr_einvoice when available.
+
+        Priority:
+        1) public model service in l10n_cr_einvoice (`l10n_cr.einvoice.service`)
+        2) python service adapter used by this bridge.
+        """
+        self.ensure_one()
+
+        model_name = "l10n_cr.einvoice.service"
+        if model_name in self.env:
+            service_model = self.env[model_name]
+            method_names = [
+                "enqueue_from_pos_order",
+                "send_from_pos_order",
+                "process_pos_order",
+            ]
+            for method_name in method_names:
+                if hasattr(service_model, method_name):
+                    method = getattr(service_model, method_name)
+                    try:
+                        result = method(self.id, payload=payload, company_id=self.company_id.id, idempotency_key=payload["idempotency_key"])
+                    except TypeError:
+                        try:
+                            result = method(self.id, payload)
+                        except TypeError:
+                            result = method(self.id)
+                    return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
+
+        return service.process_full_flow(self, payload, doc_type="te")
+
     def _cr_check_ticket_status_from_order(self):
         self.ensure_one()
-        if self.cr_fe_status == "sent":
-            self.cr_fe_status = "accepted"
+        service = self._cr_service()
+
+        model_name = "l10n_cr.einvoice.service"
+        status = False
+        if model_name in self.env:
+            service_model = self.env[model_name]
+            methods = ["check_status_from_pos_order", "check_status", "get_pos_order_status"]
+            for method_name in methods:
+                if hasattr(service_model, method_name):
+                    method = getattr(service_model, method_name)
+                    try:
+                        status = method(self.id, idempotency_key=self.cr_fe_idempotency_key)
+                    except TypeError:
+                        status = method(self.id)
+                    break
+
+        if not status:
+            status = getattr(service, "check_status_from_pos_order", lambda order: {"status": order.cr_fe_status})(self)
+
+        if isinstance(status, dict):
+            normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
+            self.write({"cr_fe_status": normalized})
         return True
 
     @api.model
