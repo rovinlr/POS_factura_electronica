@@ -111,6 +111,11 @@ except ImportError:
             def sign_xml(self, xml):
                 return xml
 
+            def _json_default(self, value):
+                if isinstance(value, (bytes, bytearray)):
+                    return value.decode("utf-8", errors="replace")
+                raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
             def send_to_hacienda(self, payload, signed_xml):
                 return {"status": "sent", "xml": signed_xml, "track_id": payload.get("idempotency_key")}
 
@@ -150,7 +155,7 @@ except ImportError:
                 parsed = self.parse_hacienda_response(response)
 
                 document_attachment = self.attach_xml(record, signed_xml, kind="document")
-                response_attachment = self.attach_xml(record, json.dumps(response), kind="response")
+                response_attachment = self.attach_xml(record, json.dumps(response, default=self._json_default), kind="response")
                 status = parsed.get("status", "sent")
                 self.update_einvoice_fields(
                     record,
