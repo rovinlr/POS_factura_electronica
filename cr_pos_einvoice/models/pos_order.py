@@ -9,6 +9,22 @@ class PosOrder(models.Model):
     _inherit = "pos.order"
 
     _CR_INVOICE_MOVE_TYPES = ("out_invoice", "out_refund")
+    _CR_HACIENDA_STATUS_MAP = {
+        "accepted": "accepted",
+        "aceptado": "accepted",
+        "complete": "complete",
+        "completo": "complete",
+        "completed": "complete",
+        "rechazado": "rejected",
+        "rejected": "rejected",
+        "error": "error",
+        "sent": "sent",
+        "enviado": "sent",
+        "sending": "sending",
+        "enviando": "sending",
+        "to_send": "to_send",
+        "pendiente": "to_send",
+    }
 
     _CR_INTERNAL_ACTION_METHODS = {
         "action_cr_send_hacienda",
@@ -29,6 +45,9 @@ class PosOrder(models.Model):
             ("to_send", "Pendiente de envío"),
             ("sending", "Enviando"),
             ("sent", "Enviado"),
+            ("complete", "Completo"),
+            ("accepted", "Aceptado"),
+            ("rejected", "Rechazado"),
             ("error", "Con error"),
         ],
         string="Estado FE",
@@ -36,6 +55,12 @@ class PosOrder(models.Model):
         copy=False,
     )
     cr_fe_xml_attachment_id = fields.Many2one("ir.attachment", string="XML FE", copy=False)
+    cr_fe_consecutivo = fields.Char(string="Consecutivo FE", copy=False)
+    cr_fe_attachment_ids = fields.Many2many(
+        "ir.attachment",
+        string="Adjuntos FE",
+        compute="_compute_cr_fe_attachment_ids",
+    )
     cr_fe_retry_count = fields.Integer(string="Reintentos FE", default=0, copy=False)
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
@@ -74,6 +99,19 @@ class PosOrder(models.Model):
         for order in self:
             order._cr_check_hacienda_status()
         return True
+
+    def _compute_cr_fe_attachment_ids(self):
+        attachment_model = self.env["ir.attachment"]
+        for order in self:
+            domains = [[("res_model", "=", "pos.order"), ("res_id", "=", order.id)]]
+            if order.account_move:
+                domains.append([("res_model", "=", "account.move"), ("res_id", "=", order.account_move.id)])
+
+            domain = ["|"] * (len(domains) - 1)
+            for item in domains:
+                domain += item
+
+            order.cr_fe_attachment_ids = attachment_model.search(domain, order="id desc")
 
     def _cr_get_real_invoice_move(self):
         self.ensure_one()
@@ -352,13 +390,18 @@ class PosOrder(models.Model):
             normalized = method_name.lower()
             if method_name in self._CR_INTERNAL_ACTION_METHODS:
                 continue
-            if not normalized.startswith(("action_", "button_")):
+            if method_name.startswith("_"):
                 continue
             if required_keywords and not all(keyword in normalized for keyword in required_keywords):
                 continue
             if excluded_keywords and any(keyword in normalized for keyword in excluded_keywords):
                 continue
+            if not callable(getattr(self, method_name, None)):
+                continue
+
             score = sum(1 for keyword in optional_keywords if keyword in normalized)
+            if normalized.startswith(("action_", "button_")):
+                score += 100
             if not required_keywords and optional_keywords and score == 0:
                 continue
             matches.append((score, method_name))
@@ -380,14 +423,19 @@ class PosOrder(models.Model):
                 break
 
         clave = self.cr_fe_clave
+        consecutivo = self.cr_fe_consecutivo
         for candidate in (
             "l10n_cr_clave",
             "l10n_cr_einvoice_key",
-            "l10n_cr_numero_consecutivo",
             "number_electronic",
         ):
             if candidate in self._fields and self[candidate]:
                 clave = self[candidate]
+                break
+
+        for candidate in ("l10n_cr_numero_consecutivo", "l10n_latam_document_number"):
+            if candidate in self._fields and self[candidate]:
+                consecutivo = self[candidate]
                 break
 
         xml_attachment = self.env["ir.attachment"].search(
@@ -402,16 +450,26 @@ class PosOrder(models.Model):
             limit=1,
         )
 
-        allowed_statuses = {item[0] for item in self._fields["cr_fe_status"].selection}
-        normalized_status = status if status in allowed_statuses else ("sent" if default_status else self.cr_fe_status)
+        normalized_status = self._cr_normalize_hacienda_status(status, default_status=default_status)
 
         self.write(
             {
                 "cr_fe_status": normalized_status,
                 "cr_fe_clave": clave,
+                "cr_fe_consecutivo": consecutivo,
                 "cr_fe_xml_attachment_id": xml_attachment.id or False,
             }
         )
+
+    def _cr_normalize_hacienda_status(self, status, default_status=False):
+        normalized = (status or "").strip().lower()
+        if normalized in self._CR_HACIENDA_STATUS_MAP:
+            return self._CR_HACIENDA_STATUS_MAP[normalized]
+
+        allowed_statuses = {item[0] for item in self._fields["cr_fe_status"].selection}
+        if status in allowed_statuses:
+            return status
+        return "sent" if default_status else self.cr_fe_status
 
     @api.model
     def _cron_cr_pos_send_pending_tickets(self, limit=50):
