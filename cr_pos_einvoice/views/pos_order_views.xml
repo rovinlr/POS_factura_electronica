@@ -11,7 +11,7 @@
                 <button name="action_cr_open_fe_document" type="object" string="Abrir comprobante electrónico"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
-                <page string="Factura Electrónica (CR)">
+                <page string="Documentos Electrónicos">
                     <group>
                         <group>
                             <field name="cr_fe_document_type" readonly="1"/>
@@ -21,9 +21,16 @@
                             <field name="account_move" readonly="1"/>
                             <field name="cr_ticket_move_id" readonly="1"/>
                         </group>
+                        <group>
+                            <field name="cr_fe_idempotency_key" readonly="1"/>
+                            <field name="cr_fe_last_send_date" readonly="1"/>
+                            <field name="cr_fe_retry_count" readonly="1"/>
+                            <field name="cr_fe_last_error" readonly="1"/>
+                        </group>
                     </group>
-                    <group string="Adjuntos">
+                    <group string="Adjuntos XML">
                         <field name="cr_fe_xml_attachment_id" readonly="1"/>
+                        <field name="cr_fe_response_attachment_id" readonly="1"/>
                         <field name="cr_fe_attachment_ids" readonly="1" widget="many2many_binary"/>
                     </group>
                 </page>
