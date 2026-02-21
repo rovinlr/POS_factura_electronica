@@ -19,6 +19,9 @@ class AccountMove(models.Model):
             ("to_send", "Pendiente de envío"),
             ("sending", "Enviando"),
             ("sent", "Enviado"),
+            ("complete", "Completo"),
+            ("accepted", "Aceptado"),
+            ("rejected", "Rechazado"),
             ("error", "Con error"),
         ],
         default="not_applicable",
@@ -126,10 +129,22 @@ class AccountMove(models.Model):
             if not order:
                 continue
             status = move.cr_pos_fe_state
+            for candidate in ("l10n_cr_hacienda_status", "l10n_cr_state_tributacion", "l10n_cr_status", "state_tributacion"):
+                if candidate in move._fields and move[candidate]:
+                    status = move[candidate]
+                    break
+
+            status = order._cr_normalize_hacienda_status(status, default_status=(status == "sent"))
             clave = False
             for candidate in ("l10n_cr_clave", "l10n_cr_einvoice_key", "l10n_cr_numero_consecutivo"):
                 if candidate in move._fields and move[candidate]:
                     clave = move[candidate]
+                    break
+
+            consecutivo = False
+            for candidate in ("l10n_cr_numero_consecutivo", "l10n_latam_document_number"):
+                if candidate in move._fields and move[candidate]:
+                    consecutivo = move[candidate]
                     break
             xml_attachment = self.env["ir.attachment"].search(
                 [
@@ -144,6 +159,7 @@ class AccountMove(models.Model):
                 {
                     "cr_fe_status": status,
                     "cr_fe_clave": clave,
+                    "cr_fe_consecutivo": consecutivo,
                     "cr_fe_xml_attachment_id": xml_attachment.id or False,
                 }
             )

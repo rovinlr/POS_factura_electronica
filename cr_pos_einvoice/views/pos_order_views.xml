@@ -16,6 +16,7 @@
                         <group>
                             <field name="cr_fe_document_type" readonly="1"/>
                             <field name="cr_fe_clave" readonly="1"/>
+                            <field name="cr_fe_consecutivo" readonly="1"/>
                             <field name="cr_fe_status" readonly="1"/>
                             <field name="account_move" readonly="1"/>
                             <field name="cr_ticket_move_id" readonly="1"/>
@@ -23,6 +24,7 @@
                     </group>
                     <group string="Adjuntos">
                         <field name="cr_fe_xml_attachment_id" readonly="1"/>
+                        <field name="cr_fe_attachment_ids" readonly="1" widget="many2many_binary"/>
                     </group>
                 </page>
             </xpath>
