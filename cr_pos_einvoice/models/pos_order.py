@@ -3,7 +3,7 @@ from datetime import timedelta
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from l10n_cr_einvoice.services.einvoice_service import EInvoiceService
+from odoo.addons.l10n_cr_einvoice.services.einvoice_service import EInvoiceService
 
 
 class PosOrder(models.Model):
