@@ -185,6 +185,8 @@ except ImportError:
                     {
                         "cr_fe_status": status,
                         "cr_pos_fe_state": status,
+                        "cr_fe_consecutivo": payload.get("consecutivo"),
+                        "cr_fe_document_type": doc_type,
                         "cr_fe_xml_attachment_id": document_attachment.id,
                         "cr_fe_response_attachment_id": response_attachment.id,
                     },
