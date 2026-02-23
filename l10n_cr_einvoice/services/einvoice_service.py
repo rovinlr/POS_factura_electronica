@@ -1,5 +1,4 @@
 import base64
-import json
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
@@ -144,10 +143,49 @@ class EInvoiceService:
         return {"status": "sent", "xml": signed_xml, "track_id": payload.get("idempotency_key")}
 
     def parse_hacienda_response(self, response):
-        return {
-            "status": response.get("status", "sent"),
-            "track_id": response.get("track_id"),
-        }
+        if isinstance(response, dict):
+            return {
+                "status": response.get("status", "sent"),
+                "track_id": response.get("track_id"),
+            }
+        return {"status": "sent", "track_id": False}
+
+
+    def _extract_xml_blob(self, content):
+        if isinstance(content, (bytes, bytearray)):
+            return bytes(content)
+        if isinstance(content, str) and content.strip():
+            return content.encode("utf-8")
+        return False
+
+    def build_document_xml(self, signed_xml, response):
+        xml_blob = self._extract_xml_blob(signed_xml)
+        if isinstance(response, dict):
+            for key in ("document_xml", "signed_xml", "xml_document", "xml"):
+                from_response = self._extract_xml_blob(response.get(key))
+                if from_response:
+                    return from_response
+        return xml_blob or b""
+
+    def build_hacienda_response_xml(self, response, parsed):
+        if isinstance(response, (bytes, bytearray)):
+            return bytes(response)
+        if isinstance(response, str):
+            return response.encode("utf-8")
+        if isinstance(response, dict):
+            for key in ("xml_response", "response_xml", "acuse_xml", "acuse"):
+                xml_text = response.get(key)
+                if isinstance(xml_text, (bytes, bytearray)):
+                    return bytes(xml_text)
+                if isinstance(xml_text, str) and xml_text.strip():
+                    return xml_text.encode("utf-8")
+
+        root = Element("HaciendaResponse")
+        status_node = SubElement(root, "status")
+        status_node.text = str(parsed.get("status") or "sent")
+        track_node = SubElement(root, "track_id")
+        track_node.text = str(parsed.get("track_id") or "")
+        return tostring(root, encoding="utf-8", xml_declaration=True)
 
     def attach_xml(self, record, xml, kind="document"):
         xml_bytes = xml if isinstance(xml, (bytes, bytearray)) else str(xml).encode("utf-8")
@@ -178,8 +216,10 @@ class EInvoiceService:
         response = self.send_to_hacienda(payload, signed_xml)
         parsed = self.parse_hacienda_response(response)
 
-        document_attachment = self.attach_xml(record, signed_xml, kind="document")
-        response_attachment = self.attach_xml(record, json.dumps(response, default=self._json_default), kind="response")
+        document_xml_to_attach = self.build_document_xml(signed_xml, response)
+        document_attachment = self.attach_xml(record, document_xml_to_attach, kind="document")
+        response_xml = self.build_hacienda_response_xml(response, parsed)
+        response_attachment = self.attach_xml(record, response_xml, kind="response")
         status = parsed.get("status", "sent")
         self.update_einvoice_fields(
             record,
