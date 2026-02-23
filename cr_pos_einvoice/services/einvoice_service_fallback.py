@@ -2,6 +2,7 @@
 
 import base64
 import json
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 
 try:  # Prefer the canonical addon path when available.
@@ -102,11 +103,33 @@ except ImportError:
                 return True, "ok"
 
             def generate_xml(self, payload, doc_type):
-                content = {
-                    "doc_type": doc_type,
-                    "payload": payload,
-                }
-                return json.dumps(content, ensure_ascii=False).encode("utf-8")
+                root = Element("ElectronicDocument")
+                root.set("doc_type", str(doc_type or ""))
+                self._append_value(root, "payload", payload)
+                return tostring(root, encoding="utf-8", xml_declaration=True)
+
+            def _append_value(self, parent, key, value):
+                tag_name = self._safe_tag_name(key)
+                if isinstance(value, dict):
+                    node = SubElement(parent, tag_name)
+                    for child_key, child_value in value.items():
+                        self._append_value(node, child_key, child_value)
+                    return
+                if isinstance(value, list):
+                    node = SubElement(parent, tag_name)
+                    for item in value:
+                        self._append_value(node, "item", item)
+                    return
+                node = SubElement(parent, tag_name)
+                node.text = "" if value in (None, False) else str(value)
+
+            def _safe_tag_name(self, value):
+                cleaned = "".join(char if (char.isalnum() or char == "_") else "_" for char in str(value or "value"))
+                if not cleaned:
+                    return "value"
+                if cleaned[0].isdigit():
+                    cleaned = f"n_{cleaned}"
+                return cleaned
 
             def sign_xml(self, xml):
                 return xml
@@ -162,6 +185,8 @@ except ImportError:
                     {
                         "cr_fe_status": status,
                         "cr_pos_fe_state": status,
+                        "cr_fe_consecutivo": payload.get("consecutivo"),
+                        "cr_fe_document_type": doc_type,
                         "cr_fe_xml_attachment_id": document_attachment.id,
                         "cr_fe_response_attachment_id": response_attachment.id,
                     },

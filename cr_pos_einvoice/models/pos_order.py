@@ -133,6 +133,26 @@ class PosOrder(models.Model):
         self.ensure_one()
         return f"POS-{self.company_id.id}-{self.config_id.id}-{self.name or self.pos_reference or self.id}"
 
+    def _cr_get_next_consecutivo_by_document_type(self, document_type):
+        self.ensure_one()
+        doc_type = document_type or self.cr_fe_document_type or "te"
+        domain = [
+            ("company_id", "=", self.company_id.id),
+            ("cr_fe_document_type", "=", doc_type),
+            ("cr_fe_consecutivo", "!=", False),
+            ("id", "!=", self.id),
+        ]
+        previous_orders = self.search(domain)
+        highest = 0
+        pad = 10
+        for order in previous_orders:
+            raw = order.cr_fe_consecutivo or ""
+            digits = "".join(char for char in str(raw) if char.isdigit())
+            if digits:
+                highest = max(highest, int(digits))
+                pad = max(pad, len(digits))
+        return str(highest + 1).zfill(pad)
+
     def action_cr_send_hacienda(self):
         for order in self:
             order._cr_send_to_hacienda(force=True)
@@ -255,16 +275,24 @@ class PosOrder(models.Model):
             return False
 
         service = self._cr_service()
+        doc_type = self.cr_fe_document_type or "te"
         payload = service.build_payload_from_pos_order(self)
         payload["idempotency_key"] = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
+        payload["consecutivo"] = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
 
         can_process, reason = service.ensure_idempotency(self, payload)
         if not can_process and not force:
             return reason == "already_processed"
 
-        self.write({"cr_fe_status": "to_send", "cr_fe_idempotency_key": payload["idempotency_key"]})
+        self.write(
+            {
+                "cr_fe_status": "to_send",
+                "cr_fe_idempotency_key": payload["idempotency_key"],
+                "cr_fe_consecutivo": payload["consecutivo"],
+            }
+        )
         try:
-            result = self._cr_send_ticket_via_l10n_service(service, payload)
+            result = self._cr_send_ticket_via_l10n_service(service, payload, doc_type=doc_type)
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
@@ -288,7 +316,7 @@ class PosOrder(models.Model):
             )
             return False
 
-    def _cr_send_ticket_via_l10n_service(self, service, payload):
+    def _cr_send_ticket_via_l10n_service(self, service, payload, doc_type="te"):
         """Delegate TE send to l10n_cr_einvoice when available.
 
         Priority:
@@ -317,7 +345,7 @@ class PosOrder(models.Model):
                             result = method(self.id)
                     return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
 
-        return service.process_full_flow(self, payload, doc_type="te")
+        return service.process_full_flow(self, payload, doc_type=doc_type)
 
     def _cr_check_ticket_status_from_order(self):
         self.ensure_one()
