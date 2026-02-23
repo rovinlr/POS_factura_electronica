@@ -321,7 +321,8 @@ class PosOrder(models.Model):
 
         Priority:
         1) public model service in l10n_cr_einvoice (`l10n_cr.einvoice.service`)
-        2) python service adapter used by this bridge.
+        2) python service adapter used by this bridge (fallback only for
+           development; it does not build FE 4.4 XML).
         """
         self.ensure_one()
 
@@ -345,7 +346,15 @@ class PosOrder(models.Model):
                             result = method(self.id)
                     return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
 
-        return service.process_full_flow(self, payload, doc_type=doc_type)
+        raise UserError(
+            _(
+                "No se encontró el servicio `l10n_cr.einvoice.service`. "
+                "El fallback actual serializa un XML canónico de depuración "
+                "(ElectronicDocument/payload) y no un XML FE 4.4 válido. "
+                "Instale o exponga el servicio real en l10n_cr_einvoice para "
+                "emitir documentos a Hacienda."
+            )
+        )
 
     def _cr_check_ticket_status_from_order(self):
         self.ensure_one()
