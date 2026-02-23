@@ -346,6 +346,15 @@ class PosOrder(models.Model):
                             result = method(self.id)
                     return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
 
+            raise UserError(
+                _(
+                    "Se encontró el modelo `l10n_cr.einvoice.service`, pero no expone "
+                    "ningún método público compatible para POS. "
+                    "Implemente al menos uno de: `enqueue_from_pos_order`, "
+                    "`send_from_pos_order` o `process_pos_order`."
+                )
+            )
+
         raise UserError(
             _(
                 "No se encontró el servicio `l10n_cr.einvoice.service`. "
