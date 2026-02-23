@@ -346,11 +346,23 @@ class PosOrder(models.Model):
                             result = method(self.id)
                     return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
 
+            raise UserError(
+                _(
+                    "Se encontró el modelo `l10n_cr.einvoice.service`, pero no expone "
+                    "ningún método público compatible para POS. "
+                    "Implemente al menos uno de: `enqueue_from_pos_order`, "
+                    "`send_from_pos_order` o `process_pos_order`."
+                )
+            )
+
+        if hasattr(service, "process_full_flow"):
+            result = service.process_full_flow(self, payload, doc_type=doc_type)
+            return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
+
         raise UserError(
             _(
-                "No se encontró el servicio `l10n_cr.einvoice.service`. "
-                "El fallback actual serializa un XML canónico de depuración "
-                "(ElectronicDocument/payload) y no un XML FE 4.4 válido. "
+                "No se encontró el servicio `l10n_cr.einvoice.service` y tampoco "
+                "hay adaptador Python disponible para POS. "
                 "Instale o exponga el servicio real en l10n_cr_einvoice para "
                 "emitir documentos a Hacienda."
             )
