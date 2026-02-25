@@ -312,13 +312,7 @@ class EInvoiceService:
                     return bytes(xml_text)
                 if isinstance(xml_text, str) and xml_text.strip():
                     return xml_text.encode("utf-8")
-
-        root = Element("HaciendaResponse")
-        status_node = SubElement(root, "status")
-        status_node.text = str(parsed.get("status") or "sent")
-        track_node = SubElement(root, "track_id")
-        track_node.text = str(parsed.get("track_id") or "")
-        return tostring(root, encoding="utf-8", xml_declaration=True)
+        return False
 
     def _build_attachment_name(self, record, kind="document"):
         doc_type = (getattr(record, "cr_fe_document_type", False) or "document").lower()
