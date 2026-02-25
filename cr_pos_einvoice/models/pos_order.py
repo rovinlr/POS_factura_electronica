@@ -60,7 +60,7 @@ class PosOrder(models.Model):
             if invoice:
                 order.cr_fe_document_type = "nc" if invoice.move_type == "out_refund" else "fe"
             elif order.state in ("paid", "done", "invoiced"):
-                order.cr_fe_document_type = "te"
+                order.cr_fe_document_type = order._cr_get_pos_document_type()
             else:
                 order.cr_fe_document_type = False
 
@@ -136,6 +136,10 @@ class PosOrder(models.Model):
         if self._cr_has_real_invoice_move():
             return False
         return self.cr_fe_status not in ("accepted", "rejected")
+
+    def _cr_get_pos_document_type(self):
+        self.ensure_one()
+        return "nc" if self.amount_total < 0 else "te"
 
     def _cr_build_idempotency_key(self):
         self.ensure_one()
@@ -326,14 +330,21 @@ class PosOrder(models.Model):
 
         service_model = self.env["l10n_cr.einvoice.service"]
         idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
-        consecutivo = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type("te")
-        clave = self.cr_fe_clave or f"TE-{self.company_id.id}-{self.id}-{consecutivo}"
+        doc_type = self._cr_get_pos_document_type()
+        consecutivo = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
+        clave = self.cr_fe_clave or f"{doc_type.upper()}-{self.company_id.id}-{self.id}-{consecutivo}"
 
-        result = service_model.build_te_xml_from_pos(self.id, consecutivo=consecutivo, idempotency_key=idempotency_key, clave=clave)
+        result = service_model.build_pos_xml_from_order(
+            self.id,
+            consecutivo=consecutivo,
+            idempotency_key=idempotency_key,
+            clave=clave,
+            document_type=doc_type,
+        )
         self.write(
             {
                 "cr_fe_status": "pending",
-                "cr_fe_document_type": "te",
+                "cr_fe_document_type": doc_type,
                 "cr_fe_idempotency_key": idempotency_key,
                 "cr_fe_consecutivo": consecutivo,
                 "cr_fe_clave": clave,
@@ -353,7 +364,7 @@ class PosOrder(models.Model):
 
         service_model = self.env["l10n_cr.einvoice.service"]
         try:
-            result = service_model.send_to_hacienda(self.id)
+            result = service_model.send_to_hacienda(self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type())
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
