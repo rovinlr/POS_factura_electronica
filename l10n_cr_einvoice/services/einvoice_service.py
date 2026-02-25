@@ -41,18 +41,9 @@ class EInvoiceService:
         }
 
     def build_payload_from_pos_order(self, order):
-        """Normalize POS data into FE payload expected by the FE service.
-
-        `pos.order` uses a different data model than `account.move`.
-        This adapter converts POS lines/payments into a canonical payload so
-        XML/sign/send logic can stay centralized in l10n_cr_einvoice.
-        """
-        lines = []
-        for line in order.lines:
-            lines.append(self._map_pos_line_to_fe_line(line))
-        payments = []
-        for payment in order.payment_ids:
-            payments.append(self._map_pos_payment_to_fe_payment(payment))
+        """Build canonical payload + explicit TE 4.4 sections from `pos.order`."""
+        lines = [self._map_pos_line_to_fe_line(line) for line in order.lines]
+        payments = [self._map_pos_payment_to_fe_payment(payment) for payment in order.payment_ids]
         return {
             "source_model": "pos.order",
             "source_id": order.id,
@@ -66,29 +57,125 @@ class EInvoiceService:
             "total": order.amount_total,
             "lines": lines,
             "payments": payments,
+            "te44": self._build_te44_payload_from_pos_order(order, lines=lines, payments=payments),
         }
 
     def _map_pos_line_to_fe_line(self, line):
-        """Map `pos.order.line` fields to canonical FE line fields."""
+        taxes = []
+        for tax in line.tax_ids_after_fiscal_position:
+            taxes.append(
+                {
+                    "id": tax.id,
+                    "code": getattr(tax, "tax_code", False),
+                    "rate": tax.amount,
+                    "name": tax.name,
+                }
+            )
         return {
             "product_id": line.product_id.id,
+            "default_code": line.product_id.default_code,
             "name": line.full_product_name,
             "qty": line.qty,
+            "uom_name": line.product_uom_id.name if line.product_uom_id else "Unid",
             "price_unit": line.price_unit,
             "discount": line.discount,
+            "taxes": taxes,
             "tax_ids": line.tax_ids_after_fiscal_position.ids,
             "subtotal": line.price_subtotal,
             "total": line.price_subtotal_incl,
+            "total_tax": line.price_subtotal_incl - line.price_subtotal,
         }
 
     def _map_pos_payment_to_fe_payment(self, payment):
-        """Map `pos.payment` fields to canonical FE payment fields."""
         method = payment.payment_method_id
         return {
             "amount": payment.amount,
             "payment_method_id": method.id,
             "fp_payment_method": getattr(method, "fp_payment_method", False),
             "fp_sale_condition": getattr(method, "fp_sale_condition", False),
+            "name": method.name,
+        }
+
+    def _build_partner_payload(self, partner):
+        if not partner:
+            return {}
+        return {
+            "name": partner.name,
+            "vat": partner.vat,
+            "email": partner.email,
+            "phone": partner.phone,
+            "country_code": partner.country_id.code if partner.country_id else False,
+            "state": partner.state_id.name if partner.state_id else False,
+            "county": partner.county_id.name if "county_id" in partner._fields and partner.county_id else False,
+            "district": partner.district_id.name if "district_id" in partner._fields and partner.district_id else False,
+            "neighborhood": partner.neighborhood_id.name if "neighborhood_id" in partner._fields and partner.neighborhood_id else False,
+            "street": partner.street,
+        }
+
+    def _build_company_payload(self, company):
+        partner = company.partner_id
+        return {
+            "name": company.name,
+            "vat": company.vat,
+            "email": company.email,
+            "phone": company.phone,
+            "branch": getattr(company, "fp_branch_code", False),
+            "terminal": getattr(company, "fp_terminal_code", False),
+            "economic_activity": getattr(company, "fp_economic_activity_id", False).code if getattr(company, "fp_economic_activity_id", False) else False,
+            "address": self._build_partner_payload(partner),
+        }
+
+    def _build_te44_payload_from_pos_order(self, order, lines=None, payments=None):
+        lines = lines or []
+        payments = payments or []
+        detalle = []
+        for index, line in enumerate(lines, start=1):
+            detalle.append(
+                {
+                    "numero_linea": index,
+                    "codigo": line.get("default_code") or line.get("product_id"),
+                    "detalle": line.get("name"),
+                    "cantidad": line.get("qty"),
+                    "unidad_medida": line.get("uom_name") or "Unid",
+                    "precio_unitario": line.get("price_unit"),
+                    "monto_total": line.get("qty", 0.0) * line.get("price_unit", 0.0),
+                    "monto_descuento": (line.get("qty", 0.0) * line.get("price_unit", 0.0)) - line.get("subtotal", 0.0),
+                    "subtotal": line.get("subtotal"),
+                    "impuesto": line.get("total_tax"),
+                    "monto_total_linea": line.get("total"),
+                }
+            )
+
+        sale_condition = "01"
+        payment_codes = []
+        for payment in payments:
+            if payment.get("fp_sale_condition"):
+                sale_condition = payment["fp_sale_condition"]
+            payment_codes.append(payment.get("fp_payment_method") or "01")
+
+        return {
+            "documento": "TE",
+            "fecha_emision": str(order.date_order),
+            "emisor": self._build_company_payload(order.company_id),
+            "receptor": self._build_partner_payload(order.partner_id),
+            "condicion_venta": sale_condition,
+            "medio_pago": payment_codes or ["01"],
+            "detalle_servicio": detalle,
+            "resumen_factura": {
+                "codigo_moneda": order.currency_id.name,
+                "tipo_cambio": 1,
+                "total_serv_gravados": 0,
+                "total_serv_exentos": 0,
+                "total_mercancias_gravadas": order.amount_total - order.amount_tax,
+                "total_mercancias_exentas": 0,
+                "total_gravado": order.amount_total - order.amount_tax,
+                "total_exento": 0,
+                "total_venta": order.amount_total - order.amount_tax,
+                "total_descuentos": sum(item.get("monto_descuento", 0.0) for item in detalle),
+                "total_venta_neta": order.amount_total - order.amount_tax,
+                "total_impuesto": order.amount_tax,
+                "total_comprobante": order.amount_total,
+            },
         }
 
     def ensure_idempotency(self, record, payload):
@@ -103,9 +190,56 @@ class EInvoiceService:
         return True, "ok"
 
     def generate_xml(self, payload, doc_type):
+        if doc_type == "te" and payload.get("source_model") == "pos.order" and payload.get("te44"):
+            return self._generate_te44_xml(payload)
+
         root = Element("ElectronicDocument")
         root.set("doc_type", str(doc_type or ""))
         self._append_value(root, "payload", payload)
+        return tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def _generate_te44_xml(self, payload):
+        te44 = payload["te44"]
+        root = Element("TiqueteElectronico")
+        self._append_value(root, "Clave", payload.get("clave"))
+        self._append_value(root, "NumeroConsecutivo", payload.get("consecutivo"))
+        self._append_value(root, "FechaEmision", te44.get("fecha_emision"))
+
+        emisor = SubElement(root, "Emisor")
+        self._append_value(emisor, "Nombre", te44.get("emisor", {}).get("name"))
+        self._append_value(emisor, "Identificacion", te44.get("emisor", {}).get("vat"))
+        self._append_value(emisor, "CorreoElectronico", te44.get("emisor", {}).get("email"))
+
+        receptor_payload = te44.get("receptor")
+        if receptor_payload:
+            receptor = SubElement(root, "Receptor")
+            self._append_value(receptor, "Nombre", receptor_payload.get("name"))
+            self._append_value(receptor, "Identificacion", receptor_payload.get("vat"))
+            self._append_value(receptor, "CorreoElectronico", receptor_payload.get("email"))
+
+        self._append_value(root, "CondicionVenta", te44.get("condicion_venta"))
+        for medio_pago in te44.get("medio_pago", []):
+            self._append_value(root, "MedioPago", medio_pago)
+
+        detalle_servicio = SubElement(root, "DetalleServicio")
+        for line in te44.get("detalle_servicio", []):
+            linea = SubElement(detalle_servicio, "LineaDetalle")
+            self._append_value(linea, "NumeroLinea", line.get("numero_linea"))
+            self._append_value(linea, "Codigo", line.get("codigo"))
+            self._append_value(linea, "Detalle", line.get("detalle"))
+            self._append_value(linea, "Cantidad", line.get("cantidad"))
+            self._append_value(linea, "UnidadMedida", line.get("unidad_medida"))
+            self._append_value(linea, "PrecioUnitario", line.get("precio_unitario"))
+            self._append_value(linea, "MontoTotal", line.get("monto_total"))
+            self._append_value(linea, "MontoDescuento", line.get("monto_descuento"))
+            self._append_value(linea, "SubTotal", line.get("subtotal"))
+            self._append_value(linea, "Impuesto", line.get("impuesto"))
+            self._append_value(linea, "MontoTotalLinea", line.get("monto_total_linea"))
+
+        resumen = SubElement(root, "ResumenFactura")
+        for key, value in te44.get("resumen_factura", {}).items():
+            self._append_value(resumen, key, value)
+
         return tostring(root, encoding="utf-8", xml_declaration=True)
 
     def _append_value(self, parent, key, value):
@@ -149,7 +283,6 @@ class EInvoiceService:
                 "track_id": response.get("track_id"),
             }
         return {"status": "sent", "track_id": False}
-
 
     def _extract_xml_blob(self, content):
         if isinstance(content, (bytes, bytearray)):
