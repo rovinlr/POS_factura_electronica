@@ -406,11 +406,11 @@ class PosOrder(models.Model):
                 response = service.send_to_hacienda(payload, xml_blob)
                 parsed = service.parse_hacienda_response(response)
                 response_xml = service.build_hacienda_response_xml(response, parsed)
-                response_attachment = service.attach_xml(self, response_xml, kind="response")
+                response_attachment = service.attach_xml(self, response_xml, kind="response") if response_xml else False
                 result = {
                     "ok": True,
                     "status": parsed.get("status") or "sent",
-                    "response_attachment_id": response_attachment.id,
+                    "response_attachment_id": response_attachment.id if response_attachment else False,
                 }
 
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
