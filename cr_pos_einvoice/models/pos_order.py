@@ -328,19 +328,39 @@ class PosOrder(models.Model):
         if self.invoice_status == "invoiced" or not self._cr_should_emit_ticket():
             return False
 
-        service_model = self.env["l10n_cr.einvoice.service"]
         idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
         doc_type = self._cr_get_pos_document_type()
         consecutivo = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
         clave = self.cr_fe_clave or f"{doc_type.upper()}-{self.company_id.id}-{self.id}-{consecutivo}"
 
-        result = service_model.build_pos_xml_from_order(
-            self.id,
-            consecutivo=consecutivo,
-            idempotency_key=idempotency_key,
-            clave=clave,
-            document_type=doc_type,
-        )
+        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
+        if service_model:
+            result = service_model.build_pos_xml_from_order(
+                self.id,
+                consecutivo=consecutivo,
+                idempotency_key=idempotency_key,
+                clave=clave,
+                document_type=doc_type,
+            )
+        else:
+            service = self._cr_service()
+            payload = service.build_payload_from_pos_order(self)
+            payload.update(
+                {
+                    "document_type": doc_type,
+                    "idempotency_key": idempotency_key,
+                    "consecutivo": consecutivo,
+                    "clave": clave,
+                }
+            )
+            signed_xml = service.sign_xml(service.generate_xml(payload, doc_type))
+            attachment = service.attach_xml(self, signed_xml, kind="document")
+            result = {
+                "ok": True,
+                "status": "pending",
+                "xml_attachment_id": attachment.id,
+            }
+
         self.write(
             {
                 "cr_fe_status": "pending",
@@ -362,9 +382,37 @@ class PosOrder(models.Model):
         if not self.cr_fe_xml_attachment_id:
             self._cr_prepare_te_document()
 
-        service_model = self.env["l10n_cr.einvoice.service"]
         try:
-            result = service_model.send_to_hacienda(self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type())
+            service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
+            if service_model:
+                result = service_model.send_to_hacienda(
+                    self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type()
+                )
+            else:
+                service = self._cr_service()
+                doc_type = self.cr_fe_document_type or self._cr_get_pos_document_type()
+                payload = service.build_payload_from_pos_order(self)
+                payload.update(
+                    {
+                        "document_type": doc_type,
+                        "idempotency_key": self.cr_fe_idempotency_key or self._cr_build_idempotency_key(),
+                        "consecutivo": self.cr_fe_consecutivo,
+                        "clave": self.cr_fe_clave,
+                    }
+                )
+                xml_blob = (self.cr_fe_xml_attachment_id and self.cr_fe_xml_attachment_id.raw) or b""
+                if not xml_blob:
+                    xml_blob = service.sign_xml(service.generate_xml(payload, doc_type))
+                response = service.send_to_hacienda(payload, xml_blob)
+                parsed = service.parse_hacienda_response(response)
+                response_xml = service.build_hacienda_response_xml(response, parsed)
+                response_attachment = service.attach_xml(self, response_xml, kind="response")
+                result = {
+                    "ok": True,
+                    "status": parsed.get("status") or "sent",
+                    "response_attachment_id": response_attachment.id,
+                }
+
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
@@ -393,8 +441,14 @@ class PosOrder(models.Model):
         self.ensure_one()
         if self.invoice_status == "invoiced":
             return False
-        service_model = self.env["l10n_cr.einvoice.service"]
-        status = service_model.consult_status(self.id)
+        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
+        if service_model:
+            status = service_model.consult_status(self.id)
+        else:
+            status = {
+                "status": "processing" if self.cr_fe_status == "sent" else (self.cr_fe_status or "sent"),
+                "response_attachment_id": self.cr_fe_response_attachment_id.id if self.cr_fe_response_attachment_id else False,
+            }
 
         if isinstance(status, dict):
             normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
