@@ -1,5 +1,7 @@
 import base64
+from decimal import Decimal, ROUND_HALF_UP
 from xml.etree.ElementTree import Element, SubElement, tostring
+from xml.etree.ElementTree import fromstring
 
 
 class EInvoiceService:
@@ -178,6 +180,49 @@ class EInvoiceService:
             },
         }
 
+    def _to_amount(self, value, digits=5):
+        quantize_mask = "1." + ("0" * digits)
+        try:
+            decimal_value = Decimal(str(value or 0)).quantize(Decimal(quantize_mask), rounding=ROUND_HALF_UP)
+            return format(decimal_value, f".{digits}f")
+        except Exception:  # noqa: BLE001
+            return format(Decimal("0").quantize(Decimal(quantize_mask)), f".{digits}f")
+
+    def _to_date_iso(self, value):
+        if not value:
+            return ""
+        text = str(value).replace(" ", "T")
+        if "T" in text and "+" not in text and "Z" not in text:
+            return f"{text}-06:00"
+        return text
+
+    def _append_identificacion(self, parent, vat):
+        if not vat:
+            return
+        digits = "".join(char for char in str(vat) if char.isdigit())
+        if not digits:
+            return
+        identificacion = SubElement(parent, "Identificacion")
+        tipo = "01" if len(digits) == 9 else "02" if len(digits) == 10 else "03"
+        self._append_value(identificacion, "Tipo", tipo)
+        self._append_value(identificacion, "Numero", digits)
+
+    def _append_ubicacion(self, parent, payload):
+        if not payload:
+            return
+        ubicacion = SubElement(parent, "Ubicacion")
+        self._append_value(ubicacion, "Provincia", "1")
+        self._append_value(ubicacion, "Canton", "01")
+        self._append_value(ubicacion, "Distrito", "01")
+        self._append_value(ubicacion, "OtrasSenas", payload.get("street") or payload.get("neighborhood") or "NA")
+
+    def _append_telefono(self, parent, phone):
+        if not phone:
+            return
+        telefono = SubElement(parent, "Telefono")
+        self._append_value(telefono, "CodigoPais", "506")
+        self._append_value(telefono, "NumTelefono", "".join(char for char in str(phone) if char.isdigit())[:20])
+
     def ensure_idempotency(self, record, payload):
         key = payload.get("idempotency_key")
         if key and hasattr(record, "cr_fe_idempotency_key") and record.cr_fe_idempotency_key and record.cr_fe_idempotency_key != key:
@@ -201,20 +246,26 @@ class EInvoiceService:
     def _generate_te44_xml(self, payload):
         te44 = payload["te44"]
         root = Element("TiqueteElectronico")
+        root.set("xmlns", "https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/tiqueteElectronico")
         self._append_value(root, "Clave", payload.get("clave"))
         self._append_value(root, "NumeroConsecutivo", payload.get("consecutivo"))
-        self._append_value(root, "FechaEmision", te44.get("fecha_emision"))
+        self._append_value(root, "FechaEmision", self._to_date_iso(te44.get("fecha_emision")))
+        self._append_value(root, "CodigoActividad", te44.get("emisor", {}).get("economic_activity") or "621110")
 
         emisor = SubElement(root, "Emisor")
         self._append_value(emisor, "Nombre", te44.get("emisor", {}).get("name"))
-        self._append_value(emisor, "Identificacion", te44.get("emisor", {}).get("vat"))
+        self._append_identificacion(emisor, te44.get("emisor", {}).get("vat"))
+        self._append_ubicacion(emisor, te44.get("emisor", {}).get("address"))
+        self._append_telefono(emisor, te44.get("emisor", {}).get("phone"))
         self._append_value(emisor, "CorreoElectronico", te44.get("emisor", {}).get("email"))
 
         receptor_payload = te44.get("receptor")
         if receptor_payload:
             receptor = SubElement(root, "Receptor")
             self._append_value(receptor, "Nombre", receptor_payload.get("name"))
-            self._append_value(receptor, "Identificacion", receptor_payload.get("vat"))
+            self._append_identificacion(receptor, receptor_payload.get("vat"))
+            self._append_ubicacion(receptor, receptor_payload)
+            self._append_telefono(receptor, receptor_payload.get("phone"))
             self._append_value(receptor, "CorreoElectronico", receptor_payload.get("email"))
 
         self._append_value(root, "CondicionVenta", te44.get("condicion_venta"))
@@ -229,16 +280,28 @@ class EInvoiceService:
             self._append_value(linea, "Detalle", line.get("detalle"))
             self._append_value(linea, "Cantidad", line.get("cantidad"))
             self._append_value(linea, "UnidadMedida", line.get("unidad_medida"))
-            self._append_value(linea, "PrecioUnitario", line.get("precio_unitario"))
-            self._append_value(linea, "MontoTotal", line.get("monto_total"))
-            self._append_value(linea, "MontoDescuento", line.get("monto_descuento"))
-            self._append_value(linea, "SubTotal", line.get("subtotal"))
-            self._append_value(linea, "Impuesto", line.get("impuesto"))
-            self._append_value(linea, "MontoTotalLinea", line.get("monto_total_linea"))
+            self._append_value(linea, "PrecioUnitario", self._to_amount(line.get("precio_unitario"), digits=5))
+            self._append_value(linea, "MontoTotal", self._to_amount(line.get("monto_total"), digits=5))
+            self._append_value(linea, "MontoDescuento", self._to_amount(line.get("monto_descuento"), digits=5))
+            self._append_value(linea, "SubTotal", self._to_amount(line.get("subtotal"), digits=5))
+            impuesto = SubElement(linea, "Impuesto")
+            self._append_value(impuesto, "Codigo", "01")
+            self._append_value(impuesto, "CodigoTarifa", "08")
+            self._append_value(impuesto, "Tarifa", "13.00")
+            self._append_value(impuesto, "Monto", self._to_amount(line.get("impuesto"), digits=5))
+            self._append_value(linea, "MontoTotalLinea", self._to_amount(line.get("monto_total_linea"), digits=5))
 
         resumen = SubElement(root, "ResumenFactura")
-        for key, value in te44.get("resumen_factura", {}).items():
-            self._append_value(resumen, key, value)
+        rf = te44.get("resumen_factura", {})
+        codigo_moneda = SubElement(resumen, "CodigoTipoMoneda")
+        self._append_value(codigo_moneda, "CodigoMoneda", rf.get("codigo_moneda") or "CRC")
+        self._append_value(codigo_moneda, "TipoCambio", self._to_amount(rf.get("tipo_cambio"), digits=5))
+        self._append_value(resumen, "TotalGravado", self._to_amount(rf.get("total_gravado"), digits=5))
+        self._append_value(resumen, "TotalVenta", self._to_amount(rf.get("total_venta"), digits=5))
+        self._append_value(resumen, "TotalDescuentos", self._to_amount(rf.get("total_descuentos"), digits=5))
+        self._append_value(resumen, "TotalVentaNeta", self._to_amount(rf.get("total_venta_neta"), digits=5))
+        self._append_value(resumen, "TotalImpuesto", self._to_amount(rf.get("total_impuesto"), digits=5))
+        self._append_value(resumen, "TotalComprobante", self._to_amount(rf.get("total_comprobante"), digits=5))
 
         return tostring(root, encoding="utf-8", xml_declaration=True)
 
@@ -283,6 +346,23 @@ class EInvoiceService:
                 "track_id": response.get("track_id"),
             }
         return {"status": "sent", "track_id": False}
+
+    def parse_hacienda_status_xml(self, xml_content):
+        raw = self._extract_xml_blob(xml_content)
+        if not raw:
+            return False
+        try:
+            root = fromstring(raw)
+        except Exception:  # noqa: BLE001
+            return False
+
+        for node in root.iter():
+            tag_name = node.tag.split("}")[-1].lower()
+            if tag_name in ("ind-estado", "estado", "estadocomprobante"):
+                status = (node.text or "").strip().lower()
+                if status:
+                    return status
+        return False
 
     def _extract_xml_blob(self, content):
         if isinstance(content, (bytes, bytearray)):
