@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from importlib import import_module
 
@@ -8,6 +9,8 @@ from odoo.exceptions import UserError
 
 class PosOrder(models.Model):
     _inherit = "pos.order"
+
+    _logger = logging.getLogger(__name__)
 
     _CR_INVOICE_MOVE_TYPES = ("out_invoice", "out_refund")
 
@@ -21,8 +24,10 @@ class PosOrder(models.Model):
     cr_fe_status = fields.Selection(
         [
             ("draft", "Borrador"),
-            ("to_send", "Pendiente de envío"),
+            ("pending", "Pendiente de envío"),
+            ("error_retry", "Error con reintento"),
             ("sent", "Enviado"),
+            ("processing", "Procesando"),
             ("accepted", "Aceptado"),
             ("rejected", "Rechazado"),
             ("error", "Con error"),
@@ -55,7 +60,7 @@ class PosOrder(models.Model):
             if invoice:
                 order.cr_fe_document_type = "nc" if invoice.move_type == "out_refund" else "fe"
             elif order.state in ("paid", "done", "invoiced"):
-                order.cr_fe_document_type = "te"
+                order.cr_fe_document_type = order._cr_get_pos_document_type()
             else:
                 order.cr_fe_document_type = False
 
@@ -94,15 +99,18 @@ class PosOrder(models.Model):
             "sent": "sent",
             "procesando": "sent",
             "processing": "sent",
-            "pendiente": "to_send",
-            "to_send": "to_send",
+            "pendiente": "pending",
+            "to_send": "pending",
+            "pending": "pending",
+            "error_retry": "error_retry",
+            "recibido": "processing",
             "draft": "draft",
         }
         if normalized in mapping:
             return mapping[normalized]
         if default_status:
             return "sent"
-        return self.cr_fe_status or "to_send"
+        return self.cr_fe_status or "pending"
 
     def _compute_cr_fe_attachment_ids(self):
         for order in self:
@@ -128,6 +136,10 @@ class PosOrder(models.Model):
         if self._cr_has_real_invoice_move():
             return False
         return self.cr_fe_status not in ("accepted", "rejected")
+
+    def _cr_get_pos_document_type(self):
+        self.ensure_one()
+        return "nc" if self.amount_total < 0 else "te"
 
     def _cr_build_idempotency_key(self):
         self.ensure_one()
@@ -155,12 +167,18 @@ class PosOrder(models.Model):
 
     def action_cr_send_hacienda(self):
         for order in self:
-            order._cr_send_to_hacienda(force=True)
+            if order.invoice_status == "invoiced":
+                order._cr_sync_from_invoice_only()
+                continue
+            order._cr_send_pending_te_to_hacienda(force=True)
         return True
 
     def action_cr_check_hacienda_status(self):
         for order in self:
-            order._cr_check_hacienda_status()
+            if order.invoice_status == "invoiced":
+                order._cr_sync_from_invoice_only()
+                continue
+            order._cr_check_pending_te_status()
         return True
 
     def action_cr_open_fe_document(self):
@@ -197,20 +215,67 @@ class PosOrder(models.Model):
         order_record._cr_process_after_payment()
         return result
 
+    def _prepare_invoice_vals(self):
+        vals = super()._prepare_invoice_vals()
+        config = self.config_id
+        if config and config.fp_economic_activity_id and "fp_economic_activity_id" in self.env["account.move"]._fields:
+            vals["fp_economic_activity_id"] = config.fp_economic_activity_id.id
+        if "fp_document_type" in self.env["account.move"]._fields:
+            vals.setdefault("fp_document_type", "FE")
+        if "cr_pos_order_id" in self.env["account.move"]._fields:
+            vals["cr_pos_order_id"] = self.id
+        return vals
+
     def _cr_process_after_payment(self):
+        self._cr_dispatch_einvoice_flow()
+
+    def _cr_dispatch_einvoice_flow(self):
         for order in self:
             if order.config_id and not order.config_id.cr_fe_enabled:
                 order.cr_fe_status = "not_applicable"
                 continue
 
-            if order._cr_has_real_invoice_move():
-                invoice = order._cr_get_real_invoice_move()
-                order._cr_prepare_invoice_fe_values(invoice)
-                order.write({"cr_fe_document_type": "nc" if invoice.move_type == "out_refund" else "fe"})
+            if order.invoice_status == "invoiced":
+                order._cr_sync_from_invoice_only()
                 continue
 
-            if order._cr_should_emit_ticket():
-                order._cr_enqueue_ticket_for_send()
+            order._cr_trigger_te_flow_nonblocking()
+
+    def _cr_sync_from_invoice_only(self):
+        for order in self:
+            invoice = order._cr_get_real_invoice_move()
+            if not invoice:
+                message = _("Pedido marcado como facturado, pero no existe account.move asociado.")
+                order.write({"cr_fe_status": "error", "cr_fe_last_error": message})
+                self._logger.error("POS FE inconsistencia en pedido %s: %s", order.name, message)
+                continue
+
+            order._cr_prepare_invoice_fe_values(invoice)
+            mapped_status = "pending"
+            if "fp_api_state" in invoice._fields and invoice.fp_api_state:
+                mapped_status = order._cr_normalize_hacienda_status(invoice.fp_api_state)
+            elif "fp_invoice_status" in invoice._fields and invoice.fp_invoice_status:
+                mapped_status = order._cr_normalize_hacienda_status(invoice.fp_invoice_status)
+
+            order.write(
+                {
+                    "cr_fe_document_type": "nc" if invoice.move_type == "out_refund" else "fe",
+                    "cr_fe_clave": invoice.fp_external_id if "fp_external_id" in invoice._fields else order.cr_fe_clave,
+                    "cr_fe_consecutivo": invoice.fp_consecutive_number if "fp_consecutive_number" in invoice._fields else order.cr_fe_consecutivo,
+                    "cr_fe_status": mapped_status,
+                    "cr_fe_xml_attachment_id": invoice.fp_xml_attachment_id.id if "fp_xml_attachment_id" in invoice._fields and invoice.fp_xml_attachment_id else order.cr_fe_xml_attachment_id.id,
+                    "cr_fe_response_attachment_id": invoice.fp_response_xml_attachment_id.id
+                    if "fp_response_xml_attachment_id" in invoice._fields and invoice.fp_response_xml_attachment_id
+                    else order.cr_fe_response_attachment_id.id,
+                }
+            )
+
+    def _cr_trigger_te_flow_nonblocking(self):
+        for order in self:
+            if not order._cr_should_emit_ticket():
+                continue
+            order._cr_prepare_te_document()
+            order.write({"cr_fe_status": "pending", "cr_fe_last_error": False, "cr_fe_next_try": fields.Datetime.now()})
 
     def _cr_prepare_invoice_fe_values(self, invoice):
         vals = {
@@ -218,6 +283,10 @@ class PosOrder(models.Model):
             "cr_pos_document_type": "nc" if invoice.move_type == "out_refund" else "fe",
             "cr_pos_fe_state": "to_send",
         }
+        if "fp_economic_activity_id" in invoice._fields and self.config_id.fp_economic_activity_id:
+            vals["fp_economic_activity_id"] = self.config_id.fp_economic_activity_id.id
+        if "fp_document_type" in invoice._fields:
+            vals["fp_document_type"] = "FE"
         if "fp_payment_method" in invoice._fields:
             vals["fp_payment_method"] = self._cr_pos_payment_method_code()
         if "fp_sale_condition" in invoice._fields:
@@ -242,65 +311,69 @@ class PosOrder(models.Model):
 
     def _cr_send_to_hacienda(self, force=False):
         self.ensure_one()
-        if self._cr_has_real_invoice_move():
-            move = self._cr_get_real_invoice_move()
-            move._cr_pos_enqueue_for_send(force=force)
-            return move._cr_pos_send_to_hacienda()
-        return self._cr_send_ticket_from_order(force=force)
+        if self.invoice_status == "invoiced":
+            self._cr_sync_from_invoice_only()
+            return True
+        return self._cr_send_pending_te_to_hacienda(force=force)
 
     def _cr_check_hacienda_status(self):
         self.ensure_one()
-        if self._cr_has_real_invoice_move():
-            return self._cr_get_real_invoice_move()._cr_pos_check_hacienda_status()
-        return self._cr_check_ticket_status_from_order()
+        if self.invoice_status == "invoiced":
+            self._cr_sync_from_invoice_only()
+            return True
+        return self._cr_check_pending_te_status()
 
-    def _cr_enqueue_ticket_for_send(self, force=False):
-        for order in self:
-            if not order._cr_should_emit_ticket():
-                continue
-            if order.cr_fe_status in ("to_send", "sent") and not force:
-                continue
-            order.write(
-                {
-                    "cr_fe_status": "to_send",
-                    "cr_fe_idempotency_key": order.cr_fe_idempotency_key or order._cr_build_idempotency_key(),
-                    "cr_fe_next_try": fields.Datetime.now(),
-                    "cr_fe_last_error": False,
-                }
-            )
-
-    def _cr_send_ticket_from_order(self, force=False):
+    def _cr_prepare_te_document(self):
         self.ensure_one()
-        if not self._cr_should_emit_ticket():
+        if self.invoice_status == "invoiced" or not self._cr_should_emit_ticket():
             return False
 
-        service = self._cr_service()
-        doc_type = self.cr_fe_document_type or "te"
-        payload = service.build_payload_from_pos_order(self)
-        payload["idempotency_key"] = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
-        payload["consecutivo"] = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
+        service_model = self.env["l10n_cr.einvoice.service"]
+        idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
+        doc_type = self._cr_get_pos_document_type()
+        consecutivo = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
+        clave = self.cr_fe_clave or f"{doc_type.upper()}-{self.company_id.id}-{self.id}-{consecutivo}"
 
-        can_process, reason = service.ensure_idempotency(self, payload)
-        if not can_process and not force:
-            return reason == "already_processed"
-
+        result = service_model.build_pos_xml_from_order(
+            self.id,
+            consecutivo=consecutivo,
+            idempotency_key=idempotency_key,
+            clave=clave,
+            document_type=doc_type,
+        )
         self.write(
             {
-                "cr_fe_status": "to_send",
-                "cr_fe_idempotency_key": payload["idempotency_key"],
-                "cr_fe_consecutivo": payload["consecutivo"],
+                "cr_fe_status": "pending",
+                "cr_fe_document_type": doc_type,
+                "cr_fe_idempotency_key": idempotency_key,
+                "cr_fe_consecutivo": consecutivo,
+                "cr_fe_clave": clave,
+                "cr_fe_xml_attachment_id": result.get("xml_attachment_id") or self.cr_fe_xml_attachment_id.id,
             }
         )
+        return True
+
+    def _cr_send_pending_te_to_hacienda(self, force=False):
+        self.ensure_one()
+        if self.invoice_status == "invoiced":
+            return False
+        if self.cr_fe_status not in ("pending", "error_retry") and not force:
+            return False
+        if not self.cr_fe_xml_attachment_id:
+            self._cr_prepare_te_document()
+
+        service_model = self.env["l10n_cr.einvoice.service"]
         try:
-            result = self._cr_send_ticket_via_l10n_service(service, payload, doc_type=doc_type)
+            result = service_model.send_to_hacienda(self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type())
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
-                    "cr_fe_status": normalized_status if result.get("ok") else "error",
-                    "cr_fe_retry_count": 0,
-                    "cr_fe_last_error": False,
-                    "cr_fe_next_try": False,
+                    "cr_fe_status": normalized_status if result.get("ok") else "error_retry",
+                    "cr_fe_retry_count": 0 if result.get("ok") else self.cr_fe_retry_count,
+                    "cr_fe_last_error": False if result.get("ok") else result.get("reason"),
+                    "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5) if not result.get("ok") else False,
                     "cr_fe_last_send_date": fields.Datetime.now(),
+                    "cr_fe_response_attachment_id": result.get("response_attachment_id") or self.cr_fe_response_attachment_id.id,
                 }
             )
             return bool(result.get("ok"))
@@ -308,7 +381,7 @@ class PosOrder(models.Model):
             retries = self.cr_fe_retry_count + 1
             self.write(
                 {
-                    "cr_fe_status": "error",
+                    "cr_fe_status": "error_retry",
                     "cr_fe_retry_count": retries,
                     "cr_fe_last_error": str(error),
                     "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=min(60, retries * 5)),
@@ -316,89 +389,31 @@ class PosOrder(models.Model):
             )
             return False
 
-    def _cr_send_ticket_via_l10n_service(self, service, payload, doc_type="te"):
-        """Delegate TE send to l10n_cr_einvoice when available.
-
-        Priority:
-        1) public model service in l10n_cr_einvoice (`l10n_cr.einvoice.service`)
-        2) python service adapter used by this bridge (fallback only for
-           development; it does not build FE 4.4 XML).
-        """
+    def _cr_check_pending_te_status(self):
         self.ensure_one()
-
-        model_name = "l10n_cr.einvoice.service"
-        if model_name in self.env:
-            service_model = self.env[model_name]
-            method_names = [
-                "enqueue_from_pos_order",
-                "send_from_pos_order",
-                "process_pos_order",
-            ]
-            for method_name in method_names:
-                if hasattr(service_model, method_name):
-                    method = getattr(service_model, method_name)
-                    try:
-                        result = method(self.id, payload=payload, company_id=self.company_id.id, idempotency_key=payload["idempotency_key"])
-                    except TypeError:
-                        try:
-                            result = method(self.id, payload)
-                        except TypeError:
-                            result = method(self.id)
-                    return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
-
-            raise UserError(
-                _(
-                    "Se encontró el modelo `l10n_cr.einvoice.service`, pero no expone "
-                    "ningún método público compatible para POS. "
-                    "Implemente al menos uno de: `enqueue_from_pos_order`, "
-                    "`send_from_pos_order` o `process_pos_order`."
-                )
-            )
-
-        if hasattr(service, "process_full_flow"):
-            result = service.process_full_flow(self, payload, doc_type=doc_type)
-            return result if isinstance(result, dict) else {"ok": bool(result), "status": "sent"}
-
-        raise UserError(
-            _(
-                "No se encontró el servicio `l10n_cr.einvoice.service` y tampoco "
-                "hay adaptador Python disponible para POS. "
-                "Instale o exponga el servicio real en l10n_cr_einvoice para "
-                "emitir documentos a Hacienda."
-            )
-        )
-
-    def _cr_check_ticket_status_from_order(self):
-        self.ensure_one()
-        service = self._cr_service()
-
-        model_name = "l10n_cr.einvoice.service"
-        status = False
-        if model_name in self.env:
-            service_model = self.env[model_name]
-            methods = ["check_status_from_pos_order", "check_status", "get_pos_order_status"]
-            for method_name in methods:
-                if hasattr(service_model, method_name):
-                    method = getattr(service_model, method_name)
-                    try:
-                        status = method(self.id, idempotency_key=self.cr_fe_idempotency_key)
-                    except TypeError:
-                        status = method(self.id)
-                    break
-
-        if not status:
-            status = getattr(service, "check_status_from_pos_order", lambda order: {"status": order.cr_fe_status})(self)
+        if self.invoice_status == "invoiced":
+            return False
+        service_model = self.env["l10n_cr.einvoice.service"]
+        status = service_model.consult_status(self.id)
 
         if isinstance(status, dict):
             normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
-            self.write({"cr_fe_status": normalized})
+            values = {
+                "cr_fe_status": normalized,
+                "cr_fe_next_try": False if normalized in ("accepted", "rejected") else fields.Datetime.now() + timedelta(minutes=5),
+            }
+            if status.get("response_attachment_id"):
+                values["cr_fe_response_attachment_id"] = status.get("response_attachment_id")
+            self.write(values)
         return True
 
     @api.model
     def _cr_get_pending_send_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
-            ("cr_fe_status", "in", ["to_send", "error"]),
+            ("invoice_status", "!=", "invoiced"),
+            ("cr_fe_status", "in", ["pending", "error_retry"]),
+            ("cr_fe_xml_attachment_id", "!=", False),
             "|",
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
@@ -410,10 +425,24 @@ class PosOrder(models.Model):
     def _cr_get_pending_status_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
-            ("cr_fe_status", "in", ["sent"]),
+            ("invoice_status", "!=", "invoiced"),
+            ("cr_fe_status", "in", ["sent", "processing"]),
+            ("cr_fe_clave", "!=", False),
             "|",
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
         orders = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
         return [(order, "pos_ticket") for order in orders]
+
+    @api.model
+    def _cron_cr_pos_send_pending_te(self, limit=50):
+        for order, _target in self._cr_get_pending_send_ticket_targets(limit=limit):
+            order._cr_send_pending_te_to_hacienda()
+        return True
+
+    @api.model
+    def _cron_cr_pos_check_pending_te_status(self, limit=50):
+        for order, _target in self._cr_get_pending_status_ticket_targets(limit=limit):
+            order._cr_check_pending_te_status()
+        return True
