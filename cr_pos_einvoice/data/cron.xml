@@ -7,7 +7,6 @@
         <field name="code">model._cron_cr_pos_send_pending_te()</field>
         <field name="interval_number">2</field>
         <field name="interval_type">minutes</field>
-        <field name="numbercall">-1</field>
         <field name="active">True</field>
     </record>
 
@@ -18,7 +17,6 @@
         <field name="code">model._cron_cr_pos_check_pending_te_status()</field>
         <field name="interval_number">5</field>
         <field name="interval_type">minutes</field>
-        <field name="numbercall">-1</field>
         <field name="active">True</field>
     </record>
 </odoo>
