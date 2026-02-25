@@ -179,11 +179,11 @@ class AccountMove(models.Model):
     @api.model
     def _cr_einvoice_process_send_target(self, target, target_type):
         if target_type == "pos_ticket":
-            return target._cr_send_ticket_from_order()
+            return target._cr_send_pending_te_to_hacienda()
         return super()._cr_einvoice_process_send_target(target, target_type)
 
     @api.model
     def _cr_einvoice_process_status_target(self, target, target_type):
         if target_type == "pos_ticket":
-            return target._cr_check_ticket_status_from_order()
+            return target._cr_check_pending_te_status()
         return super()._cr_einvoice_process_status_target(target, target_type)
