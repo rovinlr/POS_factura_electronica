@@ -33,11 +33,15 @@ class L10nCrEInvoiceService(models.AbstractModel):
         normalized_payload.setdefault("idempotency_key", idempotency_key or order.cr_fe_idempotency_key or order._cr_build_idempotency_key())
         normalized_payload.setdefault(
             "consecutivo",
-            consecutivo or order.cr_fe_consecutivo or order._cr_get_next_consecutivo_by_document_type(doc_type),
+            consecutivo
+            or order.cr_fe_consecutivo
+            or (order._cr_generate_fe_consecutivo(document_type=doc_type) if hasattr(order, "_cr_generate_fe_consecutivo") else order._cr_get_next_consecutivo_by_document_type(doc_type)),
         )
         normalized_payload.setdefault(
             "clave",
-            clave or order.cr_fe_clave or f"{doc_type.upper()}-{order.company_id.id}-{order.id}-{normalized_payload['consecutivo']}",
+            clave
+            or order.cr_fe_clave
+            or (order._cr_generate_fe_clave(normalized_payload["consecutivo"]) if hasattr(order, "_cr_generate_fe_clave") else f"{doc_type.upper()}-{order.company_id.id}-{order.id}-{normalized_payload['consecutivo']}"),
         )
         return service, doc_type, normalized_payload
 
