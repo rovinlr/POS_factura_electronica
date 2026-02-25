@@ -190,9 +190,56 @@ class EInvoiceService:
         return True, "ok"
 
     def generate_xml(self, payload, doc_type):
+        if doc_type == "te" and payload.get("source_model") == "pos.order" and payload.get("te44"):
+            return self._generate_te44_xml(payload)
+
         root = Element("ElectronicDocument")
         root.set("doc_type", str(doc_type or ""))
         self._append_value(root, "payload", payload)
+        return tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def _generate_te44_xml(self, payload):
+        te44 = payload["te44"]
+        root = Element("TiqueteElectronico")
+        self._append_value(root, "Clave", payload.get("clave"))
+        self._append_value(root, "NumeroConsecutivo", payload.get("consecutivo"))
+        self._append_value(root, "FechaEmision", te44.get("fecha_emision"))
+
+        emisor = SubElement(root, "Emisor")
+        self._append_value(emisor, "Nombre", te44.get("emisor", {}).get("name"))
+        self._append_value(emisor, "Identificacion", te44.get("emisor", {}).get("vat"))
+        self._append_value(emisor, "CorreoElectronico", te44.get("emisor", {}).get("email"))
+
+        receptor_payload = te44.get("receptor")
+        if receptor_payload:
+            receptor = SubElement(root, "Receptor")
+            self._append_value(receptor, "Nombre", receptor_payload.get("name"))
+            self._append_value(receptor, "Identificacion", receptor_payload.get("vat"))
+            self._append_value(receptor, "CorreoElectronico", receptor_payload.get("email"))
+
+        self._append_value(root, "CondicionVenta", te44.get("condicion_venta"))
+        for medio_pago in te44.get("medio_pago", []):
+            self._append_value(root, "MedioPago", medio_pago)
+
+        detalle_servicio = SubElement(root, "DetalleServicio")
+        for line in te44.get("detalle_servicio", []):
+            linea = SubElement(detalle_servicio, "LineaDetalle")
+            self._append_value(linea, "NumeroLinea", line.get("numero_linea"))
+            self._append_value(linea, "Codigo", line.get("codigo"))
+            self._append_value(linea, "Detalle", line.get("detalle"))
+            self._append_value(linea, "Cantidad", line.get("cantidad"))
+            self._append_value(linea, "UnidadMedida", line.get("unidad_medida"))
+            self._append_value(linea, "PrecioUnitario", line.get("precio_unitario"))
+            self._append_value(linea, "MontoTotal", line.get("monto_total"))
+            self._append_value(linea, "MontoDescuento", line.get("monto_descuento"))
+            self._append_value(linea, "SubTotal", line.get("subtotal"))
+            self._append_value(linea, "Impuesto", line.get("impuesto"))
+            self._append_value(linea, "MontoTotalLinea", line.get("monto_total_linea"))
+
+        resumen = SubElement(root, "ResumenFactura")
+        for key, value in te44.get("resumen_factura", {}).items():
+            self._append_value(resumen, key, value)
+
         return tostring(root, encoding="utf-8", xml_declaration=True)
 
     def _append_value(self, parent, key, value):
