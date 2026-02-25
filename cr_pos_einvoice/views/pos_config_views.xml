@@ -8,6 +8,7 @@
             <xpath expr="//sheet" position="inside">
                 <group string="Factura electrónica (CR)">
                     <field name="cr_fe_enabled"/>
+                    <field name="fp_economic_activity_id"/>
                 </group>
             </xpath>
         </field>
