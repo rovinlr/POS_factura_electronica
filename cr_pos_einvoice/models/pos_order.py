@@ -465,28 +465,32 @@ class PosOrder(models.Model):
     def _cr_get_pending_send_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
-            ("invoice_status", "!=", "invoiced"),
             ("cr_fe_status", "in", ["pending", "error_retry"]),
             ("cr_fe_xml_attachment_id", "!=", False),
             "|",
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
-        orders = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        orders = self.search(domain, order="cr_fe_next_try asc, id asc")
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move())
+        if limit:
+            orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]
 
     @api.model
     def _cr_get_pending_status_ticket_targets(self, limit=50):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
-            ("invoice_status", "!=", "invoiced"),
             ("cr_fe_status", "in", ["sent", "processing"]),
             ("cr_fe_clave", "!=", False),
             "|",
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
-        orders = self.search(domain, limit=limit, order="cr_fe_next_try asc, id asc")
+        orders = self.search(domain, order="cr_fe_next_try asc, id asc")
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move())
+        if limit:
+            orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]
 
     @api.model
