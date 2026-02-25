@@ -165,7 +165,13 @@ class L10nCrEInvoiceService(models.AbstractModel):
         if idempotency_key and order.cr_fe_idempotency_key and order.cr_fe_idempotency_key != idempotency_key:
             return {"status": "error", "reason": "idempotency_key_mismatch"}
 
-        status = order.cr_fe_status or "sent"
+        service = self._get_service()
+        parsed_status = False
+        if order.cr_fe_response_attachment_id:
+            response_xml = order.cr_fe_response_attachment_id.raw or b""
+            parsed_status = service.parse_hacienda_status_xml(response_xml)
+
+        status = parsed_status or order.cr_fe_status or "sent"
         if status == "sent":
             status = "processing"
         return {
