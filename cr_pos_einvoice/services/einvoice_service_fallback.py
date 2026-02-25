@@ -311,12 +311,7 @@ except ImportError:
                         if isinstance(xml_text, str) and xml_text.strip():
                             return xml_text.encode("utf-8")
 
-                root = Element("HaciendaResponse")
-                status_node = SubElement(root, "status")
-                status_node.text = str(parsed.get("status") or "sent")
-                track_node = SubElement(root, "track_id")
-                track_node.text = str(parsed.get("track_id") or "")
-                return tostring(root, encoding="utf-8", xml_declaration=True)
+                return False
 
             def _build_attachment_name(self, record, kind="document"):
                 doc_type = (getattr(record, "cr_fe_document_type", False) or "document").lower()
@@ -355,7 +350,7 @@ except ImportError:
                 document_xml_to_attach = self.build_document_xml(signed_xml, response)
                 document_attachment = self.attach_xml(record, document_xml_to_attach, kind="document")
                 response_xml = self.build_hacienda_response_xml(response, parsed)
-                response_attachment = self.attach_xml(record, response_xml, kind="response")
+                response_attachment = self.attach_xml(record, response_xml, kind="response") if response_xml else False
                 status = parsed.get("status", "sent")
                 self.update_einvoice_fields(
                     record,
@@ -365,7 +360,7 @@ except ImportError:
                         "cr_fe_consecutivo": payload.get("consecutivo"),
                         "cr_fe_document_type": doc_type,
                         "cr_fe_xml_attachment_id": document_attachment.id,
-                        "cr_fe_response_attachment_id": response_attachment.id,
+                        "cr_fe_response_attachment_id": response_attachment.id if response_attachment else False,
                     },
                 )
                 return {

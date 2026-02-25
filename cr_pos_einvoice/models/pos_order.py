@@ -156,14 +156,42 @@ class PosOrder(models.Model):
         ]
         previous_orders = self.search(domain)
         highest = 0
-        pad = 10
         for order in previous_orders:
             raw = order.cr_fe_consecutivo or ""
             digits = "".join(char for char in str(raw) if char.isdigit())
-            if digits:
-                highest = max(highest, int(digits))
-                pad = max(pad, len(digits))
-        return str(highest + 1).zfill(pad)
+            if not digits:
+                continue
+            sequence = digits[-10:]
+            highest = max(highest, int(sequence))
+        return str(highest + 1).zfill(10)
+
+    def _cr_get_fe_document_code(self, document_type=None):
+        self.ensure_one()
+        doc_type = (document_type or self.cr_fe_document_type or self._cr_get_pos_document_type() or "te").lower()
+        mapping = {"fe": "01", "nc": "03", "te": "04"}
+        return mapping.get(doc_type, "04")
+
+    def _cr_generate_fe_consecutivo(self, document_type=None):
+        self.ensure_one()
+        branch = str(getattr(self.company_id, "fp_branch_code", "") or "1")
+        terminal = str(getattr(self.company_id, "fp_terminal_code", "") or "1")
+        sequence = self._cr_get_next_consecutivo_by_document_type(document_type)
+        doc_code = self._cr_get_fe_document_code(document_type=document_type)
+        return f"{branch.zfill(3)}{terminal.zfill(5)}{doc_code}{sequence.zfill(10)}"
+
+    def _cr_generate_fe_clave(self, consecutivo):
+        self.ensure_one()
+        company_partner = self.company_id.partner_id
+        vat_raw = self.company_id.vat or (company_partner and company_partner.vat) or ""
+        vat_digits = "".join(char for char in str(vat_raw) if char.isdigit())[-12:].zfill(12)
+        country_code = "506"
+        if self.company_id.country_id and getattr(self.company_id.country_id, "phone_code", False):
+            country_code = str(self.company_id.country_id.phone_code).zfill(3)
+        issue_date = fields.Date.context_today(self)
+        issue_ddmmyy = issue_date.strftime("%d%m%y")
+        security_code = str(self.id or 0).zfill(8)[-8:]
+        situation = "1"
+        return f"{country_code}{issue_ddmmyy}{vat_digits}{consecutivo}{situation}{security_code}"
 
     def action_cr_send_hacienda(self):
         for order in self:
@@ -330,8 +358,8 @@ class PosOrder(models.Model):
 
         idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
         doc_type = self._cr_get_pos_document_type()
-        consecutivo = self.cr_fe_consecutivo or self._cr_get_next_consecutivo_by_document_type(doc_type)
-        clave = self.cr_fe_clave or f"{doc_type.upper()}-{self.company_id.id}-{self.id}-{consecutivo}"
+        consecutivo = self.cr_fe_consecutivo or self._cr_generate_fe_consecutivo(document_type=doc_type)
+        clave = self.cr_fe_clave or self._cr_generate_fe_clave(consecutivo)
 
         service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
         if service_model:
@@ -406,11 +434,11 @@ class PosOrder(models.Model):
                 response = service.send_to_hacienda(payload, xml_blob)
                 parsed = service.parse_hacienda_response(response)
                 response_xml = service.build_hacienda_response_xml(response, parsed)
-                response_attachment = service.attach_xml(self, response_xml, kind="response")
+                response_attachment = service.attach_xml(self, response_xml, kind="response") if response_xml else False
                 result = {
                     "ok": True,
                     "status": parsed.get("status") or "sent",
-                    "response_attachment_id": response_attachment.id,
+                    "response_attachment_id": response_attachment.id if response_attachment else False,
                 }
 
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
