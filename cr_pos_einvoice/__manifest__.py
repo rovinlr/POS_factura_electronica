@@ -9,6 +9,7 @@
     "data": [
         "security/ir.model.access.csv",
         "data/cron.xml",
+        "views/hacienda_pos_menu_views.xml",
         "views/pos_config_views.xml",
         "views/pos_payment_method_views.xml",
         "views/pos_order_views.xml",

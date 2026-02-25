@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_cr_hacienda_comprobantes_pos" model="ir.actions.act_window">
+        <field name="name">Comprobantes POS</field>
+        <field name="res_model">ir.attachment</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[
+            ('res_model', '=', 'pos.order'),
+            ('mimetype', 'in', ['application/xml', 'text/xml'])
+        ]</field>
+        <field name="context">{
+            'search_default_group_by_res_id': 1,
+            'default_res_model': 'pos.order'
+        }</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No hay comprobantes POS todavía.</p>
+            <p>En este menú se listan los XML de documentos y respuestas de Hacienda generados desde órdenes de POS.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_cr_hacienda_root" name="Hacienda" parent="account.menu_finance" sequence="95"/>
+
+    <menuitem
+        id="menu_cr_hacienda_comprobantes_pos"
+        name="Comprobantes POS"
+        parent="menu_cr_hacienda_root"
+        action="action_cr_hacienda_comprobantes_pos"
+        sequence="10"
+    />
+</odoo>
