@@ -320,12 +320,17 @@ class EInvoiceService:
         track_node.text = str(parsed.get("track_id") or "")
         return tostring(root, encoding="utf-8", xml_declaration=True)
 
+    def _build_attachment_name(self, record, kind="document"):
+        doc_type = (getattr(record, "cr_fe_document_type", False) or "document").lower()
+        consecutivo = getattr(record, "cr_fe_consecutivo", False) or str(record.id)
+        suffix = "document" if kind == "document" else "response"
+        return f"{doc_type}-{consecutivo}-{suffix}.xml"
+
     def attach_xml(self, record, xml, kind="document"):
         xml_bytes = xml if isinstance(xml, (bytes, bytearray)) else str(xml).encode("utf-8")
-        suffix = "document" if kind == "document" else "response"
         attachment = self.env["ir.attachment"].create(
             {
-                "name": f"{record._name.replace('.', '_')}-{record.id}-{suffix}.xml",
+                "name": self._build_attachment_name(record, kind=kind),
                 "res_model": record._name,
                 "res_id": record.id,
                 "datas": base64.b64encode(xml_bytes),
