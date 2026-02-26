@@ -557,7 +557,7 @@ class PosOrder(models.Model):
     def _cr_get_origin_order_for_refund(self):
         """Find the original POS order referenced by refunded lines."""
         self.ensure_one()
-        if self.amount_total >= 0:
+        if not self._cr_is_credit_note_order():
             return self.env["pos.order"]
 
         origin_order = self.lines.mapped("refunded_orderline_id.order_id")
@@ -578,6 +578,19 @@ class PosOrder(models.Model):
         if candidate_moves:
             return candidate_moves.sorted("invoice_date", reverse=True)[:1]
         return self.env["account.move"]
+
+    def _cr_is_credit_note_order(self):
+        """Best-effort check to identify POS refunds that must behave as NC."""
+        self.ensure_one()
+        if self.amount_total < 0:
+            return True
+        if self.cr_fe_document_type == "nc":
+            return True
+        if self.lines.filtered("refunded_orderline_id"):
+            return True
+
+        move = self._cr_get_real_invoice_move()
+        return bool(move and move.move_type == "out_refund")
 
     def _cr_build_refund_reference_values(self):
         """Populate FE reference fields when POS generates a credit note (NC)."""
@@ -683,7 +696,7 @@ class PosOrder(models.Model):
     def _cr_get_refund_reference_data(self):
         """Return normalized FE reference data for refund orders."""
         self.ensure_one()
-        if self.amount_total >= 0:
+        if not self._cr_is_credit_note_order():
             return {}
 
         origin_order = self._cr_get_origin_order_for_refund()
