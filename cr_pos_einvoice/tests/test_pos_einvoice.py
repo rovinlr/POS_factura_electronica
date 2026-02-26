@@ -311,3 +311,37 @@ class TestPosEInvoice(TransactionCase):
 
         with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: reference_data):
             self.assertFalse(order._cr_should_delay_credit_note_xml())
+
+    def test_get_refund_reference_data_requires_emitted_reference_key(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "te",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data, {})
+
+    def test_get_refund_reference_data_requires_reference_issue_date(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "te",
+                "cr_fe_clave": "50601010100000000000000100001010000000001123456789",
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data, {})
