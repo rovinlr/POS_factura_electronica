@@ -1,6 +1,7 @@
 from odoo import fields
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
+from unittest.mock import patch
 
 
 @tagged("post_install", "-at_install")
@@ -95,3 +96,22 @@ class TestPosEInvoice(TransactionCase):
         # Basic mapping sanity: quantity and unit price should exist somewhere in DetalleServicio.
         self.assertIn("<Cantidad>2", xml_text)
         self.assertIn("<PrecioUnitario>100", xml_text)
+
+    def test_sync_last_consecutivo_in_einvoice_config_uses_service_method_when_available(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        captured = {}
+
+        class FakeService:
+            def set_last_consecutivo_by_document_type(self, company_id=None, document_type=None, consecutivo=None):
+                captured["company_id"] = company_id
+                captured["document_type"] = document_type
+                captured["consecutivo"] = consecutivo
+                return True
+
+        with patch.object(type(order), "_cr_service", lambda self: FakeService()):
+            synced = order._cr_sync_last_consecutivo_in_einvoice_config("te", "00100001040000000099")
+
+        self.assertTrue(synced)
+        self.assertEqual(captured["company_id"], self.env.company.id)
+        self.assertEqual(captured["document_type"], "TE")
+        self.assertEqual(captured["consecutivo"], "00100001040000000099")
