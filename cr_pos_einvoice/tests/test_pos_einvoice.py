@@ -152,10 +152,16 @@ class TestPosEInvoice(TransactionCase):
         move_fields = self.env["account.move"]._fields
         type_candidates = [
             "fp_reference_document_type",
-            "fp_reference_document_code",
             "fp_reference_doc_type",
             "reference_document_type",
             "l10n_cr_reference_document_type",
+        ]
+        code_candidates = [
+            "fp_reference_document_code",
+            "fp_reference_code",
+            "reference_document_code",
+            "reference_code",
+            "l10n_cr_reference_code",
         ]
         number_candidates = [
             "fp_reference_document_number",
@@ -174,13 +180,24 @@ class TestPosEInvoice(TransactionCase):
             "reversed_entry_date",
             "l10n_cr_reference_issue_date",
         ]
+        reason_candidates = [
+            "fp_reference_reason",
+            "reference_reason",
+            "l10n_cr_reference_reason",
+        ]
 
         for field_name in type_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), "04")
+        for field_name in code_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "01")
         for field_name in number_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), origin_order.cr_fe_clave)
         for field_name in date_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), origin_order.date_order.date())
+        for field_name in reason_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "Devolución de mercadería")

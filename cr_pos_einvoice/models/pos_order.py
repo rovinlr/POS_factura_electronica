@@ -465,6 +465,19 @@ class PosOrder(models.Model):
         vals.update(self._cr_build_refund_reference_values())
         return vals
 
+    def _generate_pos_order_invoice(self, *args, **kwargs):
+        """Create POS invoice without triggering email delivery from POS.
+
+        When an order is marked `to_invoice`, `l10n_cr_einvoice` must own the FE
+        flow (XML/sign/send/email). We force any known email flag to False to
+        prevent POS from preempting that process.
+        """
+
+        for key in ("send_email", "email", "mail_invoice", "send_mail"):
+            if key in kwargs:
+                kwargs[key] = False
+        return super()._generate_pos_order_invoice(*args, **kwargs)
+
     def _cr_get_origin_order_for_refund(self):
         """Find the original POS order referenced by refunded lines."""
         self.ensure_one()
@@ -526,17 +539,36 @@ class PosOrder(models.Model):
             or (origin_invoice.invoice_date if origin_invoice else False)
             or fields.Date.context_today(self)
         )
+        reference_code = (
+            (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
+            or "01"
+        )
+        reference_reason = (
+            (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
+            or _("Devolución de mercadería")
+        )
         values = {}
 
         for field_name in (
             "fp_reference_document_type",
-            "fp_reference_document_code",
             "fp_reference_doc_type",
             "reference_document_type",
             "l10n_cr_reference_document_type",
         ):
             if field_name in move_fields:
                 values[field_name] = reference_doc_type
+
+        for field_name in (
+            "fp_reference_document_code",
+            "fp_reference_code",
+            "reference_document_code",
+            "reference_code",
+            "l10n_cr_reference_code",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_code
 
         for field_name in (
             "fp_reference_document_number",
@@ -560,6 +592,14 @@ class PosOrder(models.Model):
         ):
             if field_name in move_fields:
                 values[field_name] = reference_date
+
+        for field_name in (
+            "fp_reference_reason",
+            "reference_reason",
+            "l10n_cr_reference_reason",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_reason
 
         return values
 
