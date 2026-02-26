@@ -551,11 +551,45 @@ class PosOrder(models.Model):
             return {}
 
         move_fields = self.env["account.move"]._fields
-        reference_doc_type = reference_data["document_type"]
-        reference_number = reference_data["number"]
-        reference_date = reference_data["issue_date"]
-        reference_code = reference_data["code"]
-        reference_reason = reference_data["reason"]
+        origin_order = self._cr_get_origin_order_for_refund()
+        origin_invoice = self._cr_get_origin_invoice_for_refund()
+
+        origin_doc_type = (origin_order.cr_fe_document_type if origin_order else False) or (
+            "fe" if origin_invoice else False
+        )
+        reference_doc_type = {
+            "fe": "01",  # Factura Electrónica
+            "te": "04",  # Tiquete Electrónico
+            "nc": "03",  # Nota de Crédito
+        }.get(origin_doc_type, "01")
+
+        reference_number = (
+            (origin_order.cr_fe_clave if origin_order else False)
+            or (origin_order.cr_fe_consecutivo if origin_order else False)
+            or (getattr(origin_invoice, "l10n_cr_clave", False) if origin_invoice else False)
+            or (getattr(origin_invoice, "l10n_cr_numero_consecutivo", False) if origin_invoice else False)
+            or (origin_invoice.name if origin_invoice else False)
+            or (getattr(origin_invoice, "payment_reference", False) if origin_invoice else False)
+            or (getattr(origin_invoice, "ref", False) if origin_invoice else False)
+        )
+        if not reference_number:
+            return {}
+
+        reference_date = (
+            (origin_order.date_order.date() if origin_order and origin_order.date_order else False)
+            or (origin_invoice.invoice_date if origin_invoice else False)
+            or fields.Date.context_today(self)
+        )
+        reference_code = (
+            (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
+            or "01"
+        )
+        reference_reason = (
+            (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
+            or _("Devolución de mercadería")
+        )
         values = {}
 
         for field_name in (
