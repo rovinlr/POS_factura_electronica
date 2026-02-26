@@ -1091,6 +1091,8 @@ class PosOrder(models.Model):
             "fp_economic_activity_id": self.fp_economic_activity_id.id if self.fp_economic_activity_id else False,
             "fp_consecutive_number": consecutivo,
         }
+        if (document_type or "").lower() == "nc" or self.amount_total < 0:
+            move_vals.update(self._cr_build_refund_reference_values())
         move = self.env["account.move"].with_company(company).new(move_vals)
         # Asegura cálculo de totales para XML.
         move._compute_amount()
