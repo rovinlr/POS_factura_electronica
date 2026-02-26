@@ -4,10 +4,15 @@
     <!-- Full receipt redesign for CR FE (TE/FE/NC) -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
         <xpath expr="//div[contains(@class, 'pos-receipt')]" position="replace">
-            <t t-set="data" t-value="props and props.data or {}"/>
+            <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt)) || {}"/>
             <t t-set="company" t-value="data.company or {}"/>
             <t t-set="einvoice" t-value="data.einvoice or {}"/>
             <t t-set="partner" t-value="data.partner or {}"/>
+            <t t-set="orderlines" t-value="data.orderlines || data.order_lines || []"/>
+            <t t-set="paymentlines" t-value="data.paymentlines || data.payment_lines || []"/>
+            <t t-set="subtotal" t-value="data.subtotal || data.total_without_tax || data.amount_untaxed || ''"/>
+            <t t-set="tax" t-value="data.tax || data.total_tax || data.amount_tax || ''"/>
+            <t t-set="totalWithTax" t-value="data.total_with_tax || data.total || data.amount_total || ''"/>
             <div class="pos-receipt cr-fe-receipt">
                 <!-- Company header -->
                 <div class="cr-center cr-header">
@@ -72,7 +77,7 @@
                         <div class="cr-col-total">Total</div>
                     </div>
 
-                    <t t-foreach="data.orderlines or []" t-as="line" t-key="line.cid">
+                    <t t-foreach="orderlines" t-as="line" t-key="line.cid || line.id || line.product_name || line.product_id">
                         <div class="cr-line">
                             <div class="cr-col-qty"><t t-esc="line.quantity"/></div>
                             <div class="cr-col-prod">
@@ -101,15 +106,15 @@
                 <div class="cr-totals">
                     <div class="cr-row">
                         <div>Subtotal</div>
-                        <div class="cr-right"><t t-esc="data.subtotal"/></div>
+                        <div class="cr-right"><t t-esc="subtotal"/></div>
                     </div>
                     <div class="cr-row">
                         <div>Impuesto</div>
-                        <div class="cr-right"><t t-esc="data.tax"/></div>
+                        <div class="cr-right"><t t-esc="tax"/></div>
                     </div>
                     <div class="cr-row cr-strong">
                         <div>Total</div>
-                        <div class="cr-right"><t t-esc="data.total_with_tax"/></div>
+                        <div class="cr-right"><t t-esc="totalWithTax"/></div>
                     </div>
                 </div>
 
@@ -118,8 +123,8 @@
                 <!-- Payment methods -->
                 <div class="cr-block">
                     <div class="cr-title">Medio de pago</div>
-                    <t t-if="data.paymentlines and data.paymentlines.length">
-                        <t t-foreach="data.paymentlines" t-as="pl" t-key="pl.cid">
+                    <t t-if="paymentlines.length">
+                        <t t-foreach="paymentlines" t-as="pl" t-key="pl.cid || pl.id || pl.name || pl.amount">
                             <div class="cr-row">
                                 <div><t t-esc="pl.name"/></div>
                                 <div class="cr-right"><t t-esc="pl.amount"/></div>
