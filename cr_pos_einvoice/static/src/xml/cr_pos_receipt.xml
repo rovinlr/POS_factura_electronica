@@ -66,40 +66,33 @@
                 <div class="cr-fe-extra">
                     <div class="cr-divider"/>
 
-                <div class="cr-center cr-doc-type">
-                    <t t-set="dtype" t-value="einvoice.document_type || ''"/>
-                    <t t-if="dtype == 'te'">Tiquete electrónico</t>
-                    <t t-elif="dtype == 'fe'">Factura electrónica</t>
-                    <t t-elif="dtype == 'nc'">Nota de crédito electrónica</t>
-                    <t t-else="">Comprobante</t>
-                </div>
+                    <div class="cr-center cr-doc-type">
+                        <t t-set="dtype" t-value="einvoice.document_type || ''"/>
+                        <strong>Tipo de comprobante:</strong>
+                        <t t-if="dtype == 'te'"> Tiquete electrónico</t>
+                        <t t-elif="dtype == 'fe'"> Factura electrónica</t>
+                        <t t-elif="dtype == 'nc'"> Nota de crédito electrónica</t>
+                        <t t-else=""> Comprobante</t>
+                    </div>
 
-                <t t-set="consec" t-value="einvoice.consecutivo || ''"/>
-                <t t-if="consec">
-                    <div class="cr-center cr-small">Consecutivo: <t t-esc="consec"/></div>
-                </t>
+                    <t t-set="consec" t-value="einvoice.consecutivo || ''"/>
+                    <div class="cr-center cr-small">
+                        <strong>Consecutivo:</strong>
+                        <t t-if="consec">
+                            <t t-esc="consec"/>
+                        </t>
+                        <t t-else="">Pendiente</t>
+                    </div>
 
-                <div class="cr-block">
-                    <div class="cr-title">Clave</div>
-                    <t t-if="einvoice.clave">
-                        <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave"/></div>
-                    </t>
-                    <t t-else="">
-                        <div class="cr-small">Pendiente</div>
-                    </t>
-                </div>
-
-                <!-- Extra info -->
-                <div class="cr-divider"/>
-                <div class="cr-center cr-small">
-                    <t t-set="status" t-value="einvoice.status || 'pending'"/>
-                    Estado FE:
-                    <t t-if="status == 'accepted'">Aceptado</t>
-                    <t t-elif="status == 'rejected'">Rechazado</t>
-                    <t t-elif="status == 'processing'">Procesando</t>
-                    <t t-elif="status == 'sent'">Enviado</t>
-                    <t t-else="">Pendiente</t>
-                </div>
+                    <div class="cr-block">
+                        <div class="cr-title">Clave</div>
+                        <t t-if="einvoice.clave">
+                            <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave"/></div>
+                        </t>
+                        <t t-else="">
+                            <div class="cr-small">Pendiente</div>
+                        </t>
+                    </div>
 
                     <div class="cr-divider"/>
                     <div class="cr-center cr-small">
