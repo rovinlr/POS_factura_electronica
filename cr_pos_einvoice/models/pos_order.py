@@ -91,6 +91,21 @@ class PosOrder(models.Model):
             )
         return service_model
 
+    def _cr_call_service_method(self, method_names, *args, **kwargs):
+        """Call first available service method from a compatibility list."""
+        self.ensure_one()
+        service = self._cr_service()
+        for method_name in method_names:
+            method = getattr(service, method_name, False)
+            if method:
+                return method(*args, **kwargs)
+        raise UserError(
+            _(
+                "No se encontró un método compatible en l10n_cr.einvoice.service. "
+                "Revise el contrato de integración de cr_pos_einvoice."
+            )
+        )
+
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
         normalized = (status or "").strip().lower()
@@ -411,7 +426,8 @@ class PosOrder(models.Model):
         consecutivo = self.cr_fe_consecutivo or self._cr_generate_fe_consecutivo(document_type=doc_type)
         clave = self.cr_fe_clave or self._cr_generate_fe_clave(consecutivo)
 
-        result = self._cr_service().build_pos_xml_from_order(
+        result = self._cr_call_service_method(
+            ["build_pos_xml_from_order", "prepare_pos_document", "prepare_from_pos_order"],
             self.id,
             consecutivo=consecutivo,
             idempotency_key=idempotency_key,
@@ -446,8 +462,17 @@ class PosOrder(models.Model):
 
         try:
             self._cr_validate_before_send()
-            result = self._cr_service().send_to_hacienda(
-                self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type()
+            result = self._cr_call_service_method(
+                [
+                    "send_to_hacienda",
+                    "enqueue_from_pos_order",
+                    "send_from_pos_order",
+                    "process_pos_order",
+                ],
+                self.id,
+                document_type=self.cr_fe_document_type or self._cr_get_pos_document_type(),
+                idempotency_key=self.cr_fe_idempotency_key,
+                company_id=self.company_id.id,
             )
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
@@ -489,7 +514,11 @@ class PosOrder(models.Model):
         self.ensure_one()
         if self.invoice_status == "invoiced":
             return False
-        status = self._cr_service().consult_status(self.id)
+        status = self._cr_call_service_method(
+            ["consult_status", "check_status_from_pos_order", "check_status", "get_pos_order_status"],
+            self.id,
+            idempotency_key=self.cr_fe_idempotency_key,
+        )
 
         if isinstance(status, dict):
             normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
