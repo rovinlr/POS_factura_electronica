@@ -63,21 +63,8 @@
 
                 <div class="cr-divider"/>
 
-                <!-- Document type + consecutivo -->
-                <div class="cr-center cr-doc">
-                    <div class="cr-doc-type">
-                        <t t-set="dtype" t-value="einvoice.document_type || ''"/>
-                        <t t-if="dtype == 'te'">Tiquete electrónico</t>
-                        <t t-elif="dtype == 'fe'">Factura electrónica</t>
-                        <t t-elif="dtype == 'nc'">Nota de crédito electrónica</t>
-                        <t t-else="">Comprobante</t>
-                    </div>
-
-                    <t t-set="consec" t-value="einvoice.consecutivo || ''"/>
-                    <t t-if="consec">
-                        <div class="cr-small">Consecutivo <t t-esc="consec"/></div>
-                    </t>
-                </div>
+            <div class="cr-fe-extra">
+                <div class="cr-divider"></div>
 
             <div class="cr-fe-extra">
                 <div class="cr-divider"/>
@@ -97,9 +84,8 @@
 
                 <div class="cr-block">
                     <div class="cr-title">Clave</div>
-                    <t t-set="clave" t-value="einvoice.clave || ''"/>
-                    <t t-if="clave">
-                        <div class="cr-mono cr-wrap"><t t-esc="clave"/></div>
+                    <t t-if="einvoice.clave">
+                        <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave"/></div>
                     </t>
                     <t t-else="">
                         <div class="cr-small">Pendiente</div>
@@ -125,5 +111,4 @@
             </div>
         </xpath>
     </t>
-
 </templates>
