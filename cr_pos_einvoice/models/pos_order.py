@@ -637,10 +637,14 @@ class PosOrder(models.Model):
 
         xml_bytes = signed_xml_text.encode("utf-8")
         digest = hashlib.sha256(xml_bytes).hexdigest()
-        prefix = move._fp_get_xml_filename_prefix(clave=clave)
+        doc_prefix = {
+            "te": "TE",
+            "fe": "FE",
+            "nc": "NC",
+        }.get((document_type or order.cr_fe_document_type or order._cr_get_pos_document_type() or "").lower(), "DOC")
         attachment = order.env["ir.attachment"].create(
             {
-                "name": f"{prefix}-firmado.xml",
+                "name": f"{doc_prefix}-{clave}-firmado.xml",
                 "type": "binary",
                 "datas": base64.b64encode(xml_bytes),
                 "res_model": "pos.order",
@@ -827,11 +831,14 @@ class PosOrder(models.Model):
             except Exception:  # noqa: BLE001
                 xml_text = str(xml_payload)
 
-        helper_move = self.env["account.move"].with_company(self.company_id).new({"company_id": self.company_id.id})
-        prefix = helper_move._fp_get_xml_filename_prefix(clave=clave)
+        doc_prefix = {
+            "te": "TE",
+            "fe": "FE",
+            "nc": "NC",
+        }.get((self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower(), "DOC")
         attachment = self.env["ir.attachment"].create(
             {
-                "name": f"{prefix}-respuesta-hacienda.xml",
+                "name": f"{doc_prefix}-{clave}-respuesta-hacienda.xml",
                 "type": "binary",
                 "datas": base64.b64encode(xml_text.encode("utf-8")),
                 "res_model": "pos.order",
