@@ -203,6 +203,30 @@ class TestPosEInvoice(TransactionCase):
                 self.assertEqual(values.get(field_name), "Devolución de mercadería")
 
 
+
+    def test_get_refund_reference_data_detects_nc_by_refunded_lines(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        order_line = self.env["pos.order.line"].new({"order_id": order.id})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "te",
+                "cr_fe_clave": "50601010100000000000000100001010000000001123456789",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        refunded_line = self.env["pos.order.line"].new({"order_id": origin_order.id})
+        order_line.refunded_orderline_id = refunded_line
+        order.lines = [order_line]
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("number"), origin_order.cr_fe_clave)
+
     def test_build_pos_payload_for_nc_includes_reference_aliases(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
         reference_date = fields.Date.today()
