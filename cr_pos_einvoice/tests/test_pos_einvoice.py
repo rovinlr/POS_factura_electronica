@@ -282,3 +282,22 @@ class TestPosEInvoice(TransactionCase):
                 self.assertEqual(move[field_name], expected)
         if "reversed_entry_id" in move._fields:
             self.assertEqual(move.reversed_entry_id, origin_invoice)
+
+    def test_should_delay_credit_note_xml_when_reference_is_incomplete(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+
+        with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: {"document_type": "04"}):
+            self.assertTrue(order._cr_should_delay_credit_note_xml())
+
+    def test_should_not_delay_credit_note_xml_when_reference_is_complete(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        reference_data = {
+            "document_type": "04",
+            "number": "50601010100000000000000100001010000000001123456789",
+            "issue_date": fields.Date.today(),
+            "code": "01",
+            "reason": "Devolución de mercadería",
+        }
+
+        with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: reference_data):
+            self.assertFalse(order._cr_should_delay_credit_note_xml())
