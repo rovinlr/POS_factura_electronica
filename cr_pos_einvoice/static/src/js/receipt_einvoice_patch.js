@@ -1,7 +1,7 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { PosOrder } from "@point_of_sale/app/models/pos_order";
+import { PosOrder } from "@point_of_sale/app/store/models";
 
 /**
  * Why: Make FE fields + tax amount per line available to the receipt.
@@ -28,6 +28,13 @@ patch(PosOrder.prototype, {
     },
     export_for_printing() {
         const receipt = super.export_for_printing ? super.export_for_printing(...arguments) : {};
+
+        // Normalize common keys used by different POS versions.
+        receipt.orderlines = receipt.orderlines || receipt.order_lines || receipt.lines || [];
+        receipt.paymentlines = receipt.paymentlines || receipt.payment_lines || [];
+        receipt.subtotal = receipt.subtotal || receipt.total_without_tax || receipt.amount_untaxed || "";
+        receipt.tax = receipt.tax || receipt.total_tax || receipt.amount_tax || "";
+        receipt.total_with_tax = receipt.total_with_tax || receipt.total || receipt.amount_total || "";
 
         // Per-line tax amount (numeric). Template will format.
         const orderlines = this.getOrderlines
