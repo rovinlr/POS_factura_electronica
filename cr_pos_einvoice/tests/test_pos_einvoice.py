@@ -115,3 +115,13 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(captured["company_id"], self.env.company.id)
         self.assertEqual(captured["document_type"], "TE")
         self.assertEqual(captured["consecutivo"], "00100001040000000099")
+
+    def test_sync_last_consecutivo_in_einvoice_config_falls_back_to_company_field(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        expected = "00100001040000000123"
+
+        with patch.object(type(order), "_cr_service", lambda self: False):
+            synced = order._cr_sync_last_consecutivo_in_einvoice_config("te", expected)
+
+        self.assertTrue(synced)
+        self.assertEqual(order.company_id.fp_consecutive_fe, expected)
