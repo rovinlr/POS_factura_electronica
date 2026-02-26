@@ -202,6 +202,35 @@ class TestPosEInvoice(TransactionCase):
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), "Devolución de mercadería")
 
+
+    def test_build_pos_payload_for_nc_includes_reference_aliases(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        reference_date = fields.Date.today()
+        reference_data = {
+            "document_type": "04",
+            "number": "50601010100000000000000100001010000000001123456789",
+            "issue_date": reference_date,
+            "code": "01",
+            "reason": "Devolución de mercadería",
+        }
+
+        with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: reference_data):
+            payload = order._cr_build_pos_payload(
+                consecutivo="00100001030000000001",
+                clave="50601010100000000000000100001030000000001123456789",
+                document_type="nc",
+            )
+
+        self.assertEqual(payload.get("reference", {}).get("document_type"), "04")
+        self.assertEqual(payload.get("reference", {}).get("number"), reference_data["number"])
+        self.assertEqual(payload.get("reference", {}).get("issue_date"), fields.Date.to_string(reference_date))
+        self.assertEqual(payload.get("reference_document_type"), "04")
+        self.assertEqual(payload.get("reference_document_number"), reference_data["number"])
+        self.assertEqual(payload.get("reference_issue_date"), fields.Date.to_string(reference_date))
+        self.assertEqual(payload.get("fp_reference_document_type"), "04")
+        self.assertEqual(payload.get("fp_reference_document_number"), reference_data["number"])
+        self.assertEqual(payload.get("fp_reference_issue_date"), fields.Date.to_string(reference_date))
+
     def test_build_virtual_move_for_nc_includes_reference_fields(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
         origin_invoice = self.env["account.move"].new({"move_type": "out_invoice", "name": "FAC-001"})

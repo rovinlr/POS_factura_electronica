@@ -878,6 +878,14 @@ class PosOrder(models.Model):
                 }
             )
 
+        reference_data = {}
+        if (document_type or "").lower() == "nc" or self.amount_total < 0:
+            reference_data = self._cr_get_refund_reference_data()
+
+        reference_issue_date = reference_data.get("issue_date")
+        if reference_issue_date:
+            reference_issue_date = fields.Date.to_string(reference_issue_date)
+
         return {
             "order_id": self.id,
             "name": self.name,
@@ -895,6 +903,25 @@ class PosOrder(models.Model):
             "fp_economic_activity_id": self.fp_economic_activity_id.id,
             "consecutivo": consecutivo,
             "clave": clave,
+            # Compatibilidad amplia con diferentes implementaciones del servicio FE:
+            # algunas esperan estructura anidada y otras campos planos.
+            "reference": {
+                "document_type": reference_data.get("document_type"),
+                "number": reference_data.get("number"),
+                "issue_date": reference_issue_date,
+                "code": reference_data.get("code"),
+                "reason": reference_data.get("reason"),
+            },
+            "reference_document_type": reference_data.get("document_type"),
+            "reference_document_number": reference_data.get("number"),
+            "reference_issue_date": reference_issue_date,
+            "reference_code": reference_data.get("code"),
+            "reference_reason": reference_data.get("reason"),
+            "fp_reference_document_type": reference_data.get("document_type"),
+            "fp_reference_document_number": reference_data.get("number"),
+            "fp_reference_issue_date": reference_issue_date,
+            "fp_reference_code": reference_data.get("code"),
+            "fp_reference_reason": reference_data.get("reason"),
             "lines": lines,
         }
 
