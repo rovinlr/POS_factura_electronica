@@ -51,6 +51,30 @@ class PosOrder(models.Model):
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
     cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
+    fp_document_type = fields.Selection(
+        selection="_selection_fp_document_type",
+        string="Tipo de comprobante FE",
+        compute="_compute_fp_pos_fe_fields",
+        store=True,
+    )
+    fp_sale_condition = fields.Selection(
+        selection="_selection_fp_sale_condition",
+        string="Condición de venta FE",
+        compute="_compute_fp_pos_fe_fields",
+        store=True,
+    )
+    fp_payment_method = fields.Selection(
+        selection="_selection_fp_payment_method",
+        string="Medio de pago FE",
+        compute="_compute_fp_pos_fe_fields",
+        store=True,
+    )
+    fp_economic_activity_id = fields.Many2one(
+        "fp.economic.activity",
+        string="Actividad económica FE",
+        compute="_compute_fp_pos_fe_fields",
+        store=True,
+    )
 
     _cr_pos_einvoice_idempotency_key_unique = models.Constraint(
         "unique(company_id, cr_fe_idempotency_key)",
@@ -145,20 +169,39 @@ class PosOrder(models.Model):
             )
         )
 
-    def _cr_call_service_method(self, method_names, *args, **kwargs):
-        """Call first available service method from a compatibility list."""
-        self.ensure_one()
-        service = self._cr_service()
-        for method_name in method_names:
-            method = getattr(service, method_name, False)
-            if method:
-                return method(*args, **kwargs)
-        raise UserError(
-            _(
-                "No se encontró un método compatible en l10n_cr.einvoice.service. "
-                "Revise el contrato de integración de cr_pos_einvoice."
-            )
-        )
+    def _selection_fp_document_type(self):
+        field = self.env["account.move"]._fields.get("fp_document_type")
+        if field and field.selection:
+            selection = field.selection(self.env["account.move"]) if callable(field.selection) else field.selection
+            if selection:
+                return selection
+        return [("TE", "Tiquete Electrónico"), ("FE", "Factura Electrónica"), ("NC", "Nota de Crédito")]
+
+    def _selection_fp_sale_condition(self):
+        field = self.env["account.move"]._fields.get("fp_sale_condition")
+        if field and field.selection:
+            selection = field.selection(self.env["account.move"]) if callable(field.selection) else field.selection
+            if selection:
+                return selection
+        return [("01", "Contado"), ("02", "Crédito")]
+
+    def _selection_fp_payment_method(self):
+        field = self.env["account.move"]._fields.get("fp_payment_method")
+        if field and field.selection:
+            selection = field.selection(self.env["account.move"]) if callable(field.selection) else field.selection
+            if selection:
+                return selection
+        return [("01", "Efectivo")]
+
+    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id")
+    def _compute_fp_pos_fe_fields(self):
+        for order in self:
+            doc_type = "NC" if order.amount_total < 0 else ("FE" if order._cr_has_real_invoice_move() else "TE")
+            method = order._cr_get_primary_payment_method() if order.payment_ids else self.env["pos.payment.method"]
+            order.fp_document_type = doc_type
+            order.fp_sale_condition = method.fp_sale_condition if method else False
+            order.fp_payment_method = method.fp_payment_method if method else False
+            order.fp_economic_activity_id = order.config_id.fp_economic_activity_id
 
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
@@ -245,6 +288,29 @@ class PosOrder(models.Model):
 
     def _cr_get_next_consecutivo_by_document_type(self, document_type):
         self.ensure_one()
+        service = self._cr_service()
+        doc_code = (document_type or self.cr_fe_document_type or "te").upper()
+        if service:
+            for method_name in (
+                "get_next_consecutivo",
+                "get_next_consecutive",
+                "get_next_consecutivo_by_document_type",
+                "get_last_consecutivo_by_document_type",
+            ):
+                method = getattr(service, method_name, False)
+                if not method:
+                    continue
+                try:
+                    result = method(company_id=self.company_id.id, document_type=doc_code)
+                except TypeError:
+                    result = method(self.company_id.id, doc_code)
+                if result:
+                    value = result.get("consecutivo") if isinstance(result, dict) else result
+                    if method_name == "get_last_consecutivo_by_document_type":
+                        digits = "".join(char for char in str(value) if char.isdigit())
+                        next_number = int(digits[-10:] or "0") + 1
+                        return str(next_number).zfill(10)
+                    return str(value)
         sequence = self._cr_get_or_create_sequence(document_type or self.cr_fe_document_type or "te")
         return sequence.next_by_id()
 
@@ -479,14 +545,16 @@ class PosOrder(models.Model):
         doc_type = self._cr_get_pos_document_type()
         consecutivo = self.cr_fe_consecutivo or self._cr_generate_fe_consecutivo(document_type=doc_type)
         clave = self.cr_fe_clave or self._cr_generate_fe_clave(consecutivo)
+        payload = self._cr_build_pos_payload(consecutivo=consecutivo, clave=clave, document_type=doc_type)
 
         result = self._cr_call_service_method(
-            ["build_pos_xml_from_order", "prepare_pos_document", "prepare_from_pos_order"],
+            ["build_pos_xml_from_order", "prepare_pos_document", "prepare_from_pos_order", "enqueue_from_pos_order"],
             self.id,
             consecutivo=consecutivo,
             idempotency_key=idempotency_key,
             clave=clave,
             document_type=doc_type,
+            payload=payload,
         )
 
         values = {
@@ -504,6 +572,52 @@ class PosOrder(models.Model):
             self.env.cr.rollback()
             raise UserError(_("La llave de idempotencia ya fue utilizada para esta compañía.")) from error
         return True
+
+    def _cr_build_pos_payload(self, consecutivo, clave, document_type):
+        self.ensure_one()
+        lines = []
+        for line in self.lines:
+            taxes = line.tax_ids_after_fiscal_position.compute_all(
+                line.price_unit,
+                currency=self.pricelist_id.currency_id,
+                quantity=line.qty,
+                product=line.product_id,
+                partner=self.partner_id,
+            )
+            lines.append(
+                {
+                    "line_id": line.id,
+                    "product_id": line.product_id.id,
+                    "name": line.full_product_name or line.product_id.display_name,
+                    "qty": line.qty,
+                    "uom": line.product_uom_id.name if line.product_uom_id else False,
+                    "price_unit": line.price_unit,
+                    "discount": line.discount,
+                    "subtotal": line.price_subtotal,
+                    "subtotal_incl": line.price_subtotal_incl,
+                    "taxes": taxes.get("taxes", []),
+                }
+            )
+
+        return {
+            "order_id": self.id,
+            "name": self.name,
+            "pos_reference": self.pos_reference,
+            "company_id": self.company_id.id,
+            "partner_id": self.partner_id.id,
+            "currency_id": self.pricelist_id.currency_id.id,
+            "amount_total": self.amount_total,
+            "amount_tax": self.amount_tax,
+            "amount_paid": self.amount_paid,
+            "document_type": document_type.upper(),
+            "fp_document_type": self.fp_document_type,
+            "fp_sale_condition": self.fp_sale_condition,
+            "fp_payment_method": self.fp_payment_method,
+            "fp_economic_activity_id": self.fp_economic_activity_id.id,
+            "consecutivo": consecutivo,
+            "clave": clave,
+            "lines": lines,
+        }
 
     def _cr_send_pending_te_to_hacienda(self, force=False):
         self.ensure_one()
