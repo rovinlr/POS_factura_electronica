@@ -6,8 +6,19 @@
         <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
-                <button name="action_cr_send_hacienda" type="object" string="Enviar a Hacienda" class="btn-primary"/>
-                <button name="action_cr_check_hacienda_status" type="object" string="Consultar estado Hacienda"/>
+                <button
+                    name="action_cr_send_hacienda"
+                    type="object"
+                    string="Enviar a Hacienda"
+                    class="btn-primary"
+                    invisible="state not in ['paid', 'done', 'invoiced'] or cr_fe_status in ['accepted', 'rejected', 'not_applicable']"
+                />
+                <button
+                    name="action_cr_check_hacienda_status"
+                    type="object"
+                    string="Consultar estado Hacienda"
+                    invisible="cr_fe_status not in ['sent', 'processing', 'pending', 'error_retry']"
+                />
                 <button name="action_cr_open_fe_document" type="object" string="Abrir comprobante electrónico"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
@@ -25,6 +36,7 @@
                             <field name="cr_fe_idempotency_key" readonly="1"/>
                             <field name="cr_fe_last_send_date" readonly="1"/>
                             <field name="cr_fe_retry_count" readonly="1"/>
+                            <field name="cr_fe_error_code" readonly="1"/>
                             <field name="cr_fe_last_error" readonly="1"/>
                         </group>
                     </group>

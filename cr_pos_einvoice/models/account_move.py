@@ -29,6 +29,7 @@ class AccountMove(models.Model):
         copy=False,
         tracking=True,
     )
+    cr_pos_fe_error_code = fields.Char(string="Código de error FE POS", copy=False)
     cr_pos_fe_retry_count = fields.Integer(string="Reintentos FE POS", default=0, copy=False)
     cr_pos_fe_next_try = fields.Datetime(string="Próximo intento FE POS", copy=False)
     cr_pos_fe_last_error = fields.Text(string="Último error FE POS", copy=False)
@@ -57,6 +58,7 @@ class AccountMove(models.Model):
                     "cr_pos_fe_state": "to_send",
                     "cr_pos_fe_next_try": now,
                     "cr_pos_fe_last_error": False,
+                    "cr_pos_fe_error_code": False,
                 }
             )
 
@@ -74,6 +76,7 @@ class AccountMove(models.Model):
                 {
                     "cr_pos_fe_state": "sent",
                     "cr_pos_fe_last_error": False,
+                    "cr_pos_fe_error_code": False,
                     "cr_pos_fe_last_send_date": fields.Datetime.now(),
                     "cr_pos_fe_next_try": False,
                 }
@@ -87,6 +90,7 @@ class AccountMove(models.Model):
                 {
                     "cr_pos_fe_state": "error",
                     "cr_pos_fe_retry_count": retries,
+                    "cr_pos_fe_error_code": "send_exception",
                     "cr_pos_fe_last_error": str(error),
                     "cr_pos_fe_next_try": next_try,
                 }
@@ -158,6 +162,7 @@ class AccountMove(models.Model):
             order.write(
                 {
                     "cr_fe_status": status,
+                    "cr_fe_error_code": False,
                     "cr_fe_clave": clave,
                     "cr_fe_consecutivo": consecutivo,
                     "cr_fe_xml_attachment_id": xml_attachment.id or False,
