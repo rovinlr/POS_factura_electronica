@@ -55,6 +55,7 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
             firstDefined(
                 receipt.company,
                 receipt.headerData && receipt.headerData.company,
+                receipt.headerData,
                 order.pos && order.pos.company,
                 order.company,
                 order.company_id
