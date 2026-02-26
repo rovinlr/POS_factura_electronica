@@ -319,10 +319,13 @@ class PosOrder(models.Model):
     def _cr_sync_last_consecutivo_in_einvoice_config(self, document_type, consecutivo):
         """Best-effort sync with FE configuration's "último número" counters."""
         self.ensure_one()
-        service = self._cr_service()
-        if not service or not consecutivo:
-            service = False
+        if not consecutivo:
+            return False
 
+        digits = "".join(char for char in str(consecutivo) if char.isdigit())
+        last_number = str(int(digits[-10:] or "0"))
+
+        service = self._cr_service()
         doc_code = (document_type or self.cr_fe_document_type or "te").upper()
         sync_methods = (
             "set_last_consecutivo_by_document_type",
@@ -336,9 +339,9 @@ class PosOrder(models.Model):
             if not method:
                 continue
             try:
-                method(company_id=self.company_id.id, document_type=doc_code, consecutivo=consecutivo)
+                method(company_id=self.company_id.id, document_type=doc_code, consecutivo=last_number)
             except TypeError:
-                method(self.company_id.id, doc_code, consecutivo)
+                method(self.company_id.id, doc_code, last_number)
             return True
 
         company = self.company_id.sudo()
@@ -350,7 +353,7 @@ class PosOrder(models.Model):
         }
         for field_name in fallback_fields.get(doc_code, ("fp_consecutive_fe",)):
             if field_name in company_fields:
-                company.write({field_name: consecutivo})
+                company.write({field_name: last_number})
                 return True
 
         return False
