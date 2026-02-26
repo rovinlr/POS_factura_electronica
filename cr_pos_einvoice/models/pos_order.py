@@ -316,6 +316,32 @@ class PosOrder(models.Model):
         sequence = self._cr_get_or_create_sequence(document_type or self.cr_fe_document_type or "te")
         return sequence.next_by_id()
 
+    def _cr_sync_last_consecutivo_in_einvoice_config(self, document_type, consecutivo):
+        """Best-effort sync with FE configuration's "último número" counters."""
+        self.ensure_one()
+        service = self._cr_service()
+        if not service or not consecutivo:
+            return False
+
+        doc_code = (document_type or self.cr_fe_document_type or "te").upper()
+        sync_methods = (
+            "set_last_consecutivo_by_document_type",
+            "update_last_consecutivo_by_document_type",
+            "set_last_consecutive_by_document_type",
+            "set_last_number_by_document_type",
+            "update_last_number_by_document_type",
+        )
+        for method_name in sync_methods:
+            method = getattr(service, method_name, False)
+            if not method:
+                continue
+            try:
+                method(company_id=self.company_id.id, document_type=doc_code, consecutivo=consecutivo)
+            except TypeError:
+                method(self.company_id.id, doc_code, consecutivo)
+            return True
+        return False
+
     def _cr_get_fe_document_code(self, document_type=None):
         self.ensure_one()
         doc_type = (document_type or self.cr_fe_document_type or self._cr_get_pos_document_type() or "te").lower()
@@ -573,6 +599,7 @@ class PosOrder(models.Model):
         except IntegrityError as error:
             self.env.cr.rollback()
             raise UserError(_("La llave de idempotencia ya fue utilizada para esta compañía.")) from error
+        self._cr_sync_last_consecutivo_in_einvoice_config(doc_type, consecutivo)
         return True
 
     def _cr_build_pos_payload(self, consecutivo, clave, document_type):
