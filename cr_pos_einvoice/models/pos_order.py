@@ -465,6 +465,19 @@ class PosOrder(models.Model):
         vals.update(self._cr_build_refund_reference_values())
         return vals
 
+    def _generate_pos_order_invoice(self, *args, **kwargs):
+        """Create POS invoice without triggering email delivery from POS.
+
+        When an order is marked `to_invoice`, `l10n_cr_einvoice` must own the FE
+        flow (XML/sign/send/email). We force any known email flag to False to
+        prevent POS from preempting that process.
+        """
+
+        for key in ("send_email", "email", "mail_invoice", "send_mail"):
+            if key in kwargs:
+                kwargs[key] = False
+        return super()._generate_pos_order_invoice(*args, **kwargs)
+
     def _cr_get_origin_order_for_refund(self):
         """Find the original POS order referenced by refunded lines."""
         self.ensure_one()
