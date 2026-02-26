@@ -321,7 +321,7 @@ class PosOrder(models.Model):
         self.ensure_one()
         service = self._cr_service()
         if not service or not consecutivo:
-            return False
+            service = False
 
         doc_code = (document_type or self.cr_fe_document_type or "te").upper()
         sync_methods = (
@@ -340,6 +340,19 @@ class PosOrder(models.Model):
             except TypeError:
                 method(self.company_id.id, doc_code, consecutivo)
             return True
+
+        company = self.company_id.sudo()
+        company_fields = getattr(company, "_fields", {})
+        fallback_fields = {
+            "TE": ("fp_consecutive_te", "fp_consecutive_fe"),
+            "FE": ("fp_consecutive_fe",),
+            "NC": ("fp_consecutive_nc",),
+        }
+        for field_name in fallback_fields.get(doc_code, ("fp_consecutive_fe",)):
+            if field_name in company_fields:
+                company.write({field_name: consecutivo})
+                return True
+
         return False
 
     def _cr_get_fe_document_code(self, document_type=None):
