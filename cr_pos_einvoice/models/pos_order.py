@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from psycopg2 import IntegrityError
+from psycopg2.errors import SerializationFailure
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -1258,11 +1259,25 @@ class PosOrder(models.Model):
     @api.model
     def _cron_cr_pos_send_pending_te(self, limit=50):
         for order, _target in self._cr_get_pending_send_ticket_targets(limit=limit):
-            order._cr_send_pending_te_to_hacienda()
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_send_pending_te_to_hacienda()
+            except SerializationFailure:
+                self._logger.warning(
+                    "Skipping POS TE send for order %s due to concurrent update; it will retry in next cron run.",
+                    order.id,
+                )
         return True
 
     @api.model
     def _cron_cr_pos_check_pending_te_status(self, limit=50):
         for order, _target in self._cr_get_pending_status_ticket_targets(limit=limit):
-            order._cr_check_pending_te_status()
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_check_pending_te_status()
+            except SerializationFailure:
+                self._logger.warning(
+                    "Skipping POS TE status check for order %s due to concurrent update; it will retry in next cron run.",
+                    order.id,
+                )
         return True
