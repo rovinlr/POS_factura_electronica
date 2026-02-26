@@ -6,9 +6,9 @@
         <xpath expr="//div[contains(@class, 'pos-receipt')]" position="replace">
             <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
             <t t-set="currentOrder" t-value="(props &amp;&amp; (props.order || props.currentOrder)) || null"/>
-            <t t-set="company" t-value="data.company || data.headerData || {}"/>
-            <t t-set="einvoice" t-value="data.einvoice || {}"/>
-            <t t-set="partner" t-value="data.partner || data.client || {}"/>
+            <t t-set="company" t-value="(data &amp;&amp; (data.company || data.headerData)) || {}"/>
+            <t t-set="einvoice" t-value="(data &amp;&amp; data.einvoice) || {}"/>
+            <t t-set="partner" t-value="(data &amp;&amp; (data.partner || data.client)) || {}"/>
 
             <t t-set="orderlines" t-value="
                 data.orderlines ||
@@ -194,16 +194,20 @@
                 </div>
 
                 <!-- Extra info -->
-                <t t-if="einvoice.status">
-                    <div class="cr-divider"/>
-                    <div class="cr-center cr-small">
-                        Estado FE: <t t-esc="einvoice.status"/>
-                    </div>
-                </t>
+                <div class="cr-divider"/>
+                <div class="cr-center cr-small">
+                    <t t-set="status" t-value="einvoice.status || 'pending'"/>
+                    Estado FE:
+                    <t t-if="status == 'accepted'">Aceptado</t>
+                    <t t-elif="status == 'rejected'">Rechazado</t>
+                    <t t-elif="status == 'processing'">Procesando</t>
+                    <t t-elif="status == 'sent'">Enviado</t>
+                    <t t-else="">Pendiente</t>
+                </div>
 
                 <div class="cr-divider"/>
                 <div class="cr-center cr-small">
-                    <t t-esc="(data.date &amp;&amp; data.date.localestring) || ''"/>
+                    <t t-esc="(data.date &amp;&amp; data.date.localestring) || (data.date &amp;&amp; data.date) || ''"/>
                 </div>
             </div>
         </xpath>
