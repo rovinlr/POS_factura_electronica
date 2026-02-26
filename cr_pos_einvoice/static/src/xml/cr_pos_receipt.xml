@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <!-- Full receipt redesign for CR FE (TE/FE/NC) -->
+    <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
+        <xpath expr="//div[contains(@class, 'pos-receipt')]" position="replace">
+            <div class="pos-receipt cr-fe-receipt">
+                <!-- Company header -->
+                <div class="cr-center cr-header">
+                    <div class="cr-company-name">
+                        <t t-esc="props.data.company.name"/>
+                    </div>
+                    <t t-if="props.data.company.vat">
+                        <div class="cr-small">Identificación <t t-esc="props.data.company.vat"/></div>
+                    </t>
+                    <t t-if="props.data.company.phone">
+                        <div class="cr-small">Teléfono <t t-esc="props.data.company.phone"/></div>
+                    </t>
+                    <t t-if="props.data.company.email">
+                        <div class="cr-small">Correo: <t t-esc="props.data.company.email"/></div>
+                    </t>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Document type + consecutivo -->
+                <div class="cr-center cr-doc">
+                    <div class="cr-doc-type">
+                        <t t-set="dtype" t-value="props.data.einvoice and props.data.einvoice.document_type or ''"/>
+                        <t t-if="dtype == 'te'">Tiquete electrónico</t>
+                        <t t-elif="dtype == 'fe'">Factura electrónica</t>
+                        <t t-elif="dtype == 'nc'">Nota de crédito electrónica</t>
+                        <t t-else="">Comprobante</t>
+                    </div>
+
+                    <t t-set="consec" t-value="props.data.einvoice and props.data.einvoice.consecutivo or ''"/>
+                    <t t-if="consec">
+                        <div class="cr-small">Consecutivo <t t-esc="consec"/></div>
+                    </t>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Customer (Receptor) -->
+                <div class="cr-block">
+                    <div class="cr-title">Receptor</div>
+                    <t t-set="partner" t-value="props.data.partner or {}"/>
+                    <t t-if="partner and partner.name">
+                        <div><t t-esc="partner.name"/></div>
+                    </t>
+                    <t t-else="">
+                        <div>Cliente general</div>
+                    </t>
+
+                    <t t-if="props.data.einvoice and props.data.einvoice.receptor_id">
+                        <div class="cr-small">Identificación <t t-esc="props.data.einvoice.receptor_id"/></div>
+                    </t>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Order lines -->
+                <div class="cr-lines">
+                    <div class="cr-line cr-line-head">
+                        <div class="cr-col-qty">Cant</div>
+                        <div class="cr-col-prod">Producto</div>
+                        <div class="cr-col-price">Precio</div>
+                        <div class="cr-col-tax">Imp</div>
+                        <div class="cr-col-total">Total</div>
+                    </div>
+
+                    <t t-foreach="props.data.orderlines" t-as="line" t-key="line.cid">
+                        <div class="cr-line">
+                            <div class="cr-col-qty"><t t-esc="line.quantity"/></div>
+                            <div class="cr-col-prod">
+                                <div><t t-esc="line.product_name"/></div>
+                                <t t-if="line.discount and line.discount &gt; 0">
+                                    <div class="cr-small">Desc: <t t-esc="line.discount"/>%</div>
+                                </t>
+                            </div>
+                            <div class="cr-col-price"><t t-esc="line.price"/></div>
+                            <div class="cr-col-tax">
+                                <t t-if="line.tax_amount !== null and line.tax_amount !== undefined">
+                                    <t t-esc="env.utils.formatCurrency(line.tax_amount)"/>
+                                </t>
+                                <t t-else="">
+                                    <t t-esc="line.tax"/>
+                                </t>
+                            </div>
+                            <div class="cr-col-total"><t t-esc="line.total"/></div>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Totals -->
+                <div class="cr-totals">
+                    <div class="cr-row">
+                        <div>Subtotal</div>
+                        <div class="cr-right"><t t-esc="props.data.subtotal"/></div>
+                    </div>
+                    <div class="cr-row">
+                        <div>Impuesto</div>
+                        <div class="cr-right"><t t-esc="props.data.tax"/></div>
+                    </div>
+                    <div class="cr-row cr-strong">
+                        <div>Total</div>
+                        <div class="cr-right"><t t-esc="props.data.total_with_tax"/></div>
+                    </div>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Payment methods -->
+                <div class="cr-block">
+                    <div class="cr-title">Medio de pago</div>
+                    <t t-if="props.data.paymentlines and props.data.paymentlines.length">
+                        <t t-foreach="props.data.paymentlines" t-as="pl" t-key="pl.cid">
+                            <div class="cr-row">
+                                <div><t t-esc="pl.name"/></div>
+                                <div class="cr-right"><t t-esc="pl.amount"/></div>
+                            </div>
+                        </t>
+                    </t>
+                    <t t-else="">
+                        <div class="cr-small">N/A</div>
+                    </t>
+                </div>
+
+                <div class="cr-divider"/>
+
+                <!-- Clave -->
+                <div class="cr-block">
+                    <div class="cr-title">Clave</div>
+                    <t t-set="clave" t-value="props.data.einvoice and props.data.einvoice.clave or ''"/>
+                    <t t-if="clave">
+                        <div class="cr-mono cr-wrap"><t t-esc="clave"/></div>
+                    </t>
+                    <t t-else="">
+                        <div class="cr-small">Pendiente</div>
+                    </t>
+                </div>
+
+                <!-- Extra info -->
+                <t t-if="props.data.einvoice and props.data.einvoice.status">
+                    <div class="cr-divider"/>
+                    <div class="cr-center cr-small">
+                        Estado FE: <t t-esc="props.data.einvoice.status"/>
+                    </div>
+                </t>
+
+                <div class="cr-divider"/>
+                <div class="cr-center cr-small">
+                    <t t-esc="props.data.date.localestring"/>
+                </div>
+            </div>
+        </xpath>
+    </t>
+
+</templates>
