@@ -590,6 +590,11 @@ class PosOrder(models.Model):
         candidate_moves = origin_order.mapped("account_move").filtered(
             lambda move: move.move_type == "out_invoice" and move.state != "cancel"
         )
+        # POS tickets (not invoiced) may keep the FE move on a dedicated field.
+        # Reuse it so NC XML can set `reversed_entry_id` and inherit reference metadata.
+        candidate_moves |= origin_order.mapped("cr_ticket_move_id").filtered(
+            lambda move: move.move_type == "out_invoice" and move.state != "cancel"
+        )
         if candidate_moves:
             return candidate_moves.sorted("invoice_date", reverse=True)[:1]
         return self.env["account.move"]
