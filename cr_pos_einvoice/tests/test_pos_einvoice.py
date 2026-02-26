@@ -125,3 +125,62 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertTrue(synced)
         self.assertEqual(order.company_id.fp_consecutive_fe, "123")
+
+    def test_build_refund_reference_values_sets_reference_fields_when_available(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "te",
+                "cr_fe_clave": "50601010100000000000000100001010000000001123456789",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        origin_invoice = self.env["account.move"].new(
+            {
+                "move_type": "out_invoice",
+                "name": "FAC-001",
+                "invoice_date": fields.Date.today(),
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: origin_invoice
+        ):
+            values = order._cr_build_refund_reference_values()
+
+        move_fields = self.env["account.move"]._fields
+        type_candidates = [
+            "fp_reference_document_type",
+            "fp_reference_document_code",
+            "fp_reference_doc_type",
+            "reference_document_type",
+            "l10n_cr_reference_document_type",
+        ]
+        number_candidates = [
+            "fp_reference_document_number",
+            "fp_reference_number",
+            "reference_document_number",
+            "reference_number",
+            "reversed_entry_number",
+            "l10n_cr_reference_document_number",
+        ]
+        date_candidates = [
+            "fp_reference_issue_date",
+            "fp_reference_document_date",
+            "fp_reference_date",
+            "reference_document_date",
+            "reference_date",
+            "reversed_entry_date",
+            "l10n_cr_reference_issue_date",
+        ]
+
+        for field_name in type_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "04")
+        for field_name in number_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), origin_order.cr_fe_clave)
+        for field_name in date_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), origin_order.date_order.date())

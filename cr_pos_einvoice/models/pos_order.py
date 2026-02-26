@@ -462,7 +462,106 @@ class PosOrder(models.Model):
             vals.setdefault("fp_document_type", "FE")
         if "cr_pos_order_id" in self.env["account.move"]._fields:
             vals["cr_pos_order_id"] = self.id
+        vals.update(self._cr_build_refund_reference_values())
         return vals
+
+    def _cr_get_origin_order_for_refund(self):
+        """Find the original POS order referenced by refunded lines."""
+        self.ensure_one()
+        if self.amount_total >= 0:
+            return self.env["pos.order"]
+
+        origin_order = self.lines.mapped("refunded_orderline_id.order_id")
+        if not origin_order:
+            return self.env["pos.order"]
+        return origin_order.sorted("date_order", reverse=True)[:1]
+
+    def _cr_get_origin_invoice_for_refund(self):
+        """Find the original customer invoice referenced by a POS refund order."""
+        self.ensure_one()
+        origin_order = self._cr_get_origin_order_for_refund()
+        if not origin_order:
+            return self.env["account.move"]
+
+        candidate_moves = origin_order.mapped("account_move").filtered(
+            lambda move: move.move_type == "out_invoice" and move.state != "cancel"
+        )
+        if candidate_moves:
+            return candidate_moves.sorted("invoice_date", reverse=True)[:1]
+        return self.env["account.move"]
+
+    def _cr_build_refund_reference_values(self):
+        """Populate FE reference fields when POS generates a credit note (NC)."""
+        self.ensure_one()
+        if self.amount_total >= 0:
+            return {}
+
+        move_fields = self.env["account.move"]._fields
+        origin_order = self._cr_get_origin_order_for_refund()
+        origin_invoice = self._cr_get_origin_invoice_for_refund()
+
+        origin_doc_type = (origin_order.cr_fe_document_type if origin_order else False) or (
+            "fe" if origin_invoice else False
+        )
+        reference_doc_type = {
+            "fe": "01",  # Factura Electrónica
+            "te": "04",  # Tiquete Electrónico
+            "nc": "03",  # Nota de Crédito
+        }.get(origin_doc_type, "01")
+
+        reference_number = (
+            (origin_order.cr_fe_clave if origin_order else False)
+            or (origin_order.cr_fe_consecutivo if origin_order else False)
+            or (getattr(origin_invoice, "l10n_cr_clave", False) if origin_invoice else False)
+            or (getattr(origin_invoice, "l10n_cr_numero_consecutivo", False) if origin_invoice else False)
+            or (origin_invoice.name if origin_invoice else False)
+            or (getattr(origin_invoice, "payment_reference", False) if origin_invoice else False)
+            or (getattr(origin_invoice, "ref", False) if origin_invoice else False)
+        )
+        if not reference_number:
+            return {}
+
+        reference_date = (
+            (origin_order.date_order.date() if origin_order and origin_order.date_order else False)
+            or (origin_invoice.invoice_date if origin_invoice else False)
+            or fields.Date.context_today(self)
+        )
+        values = {}
+
+        for field_name in (
+            "fp_reference_document_type",
+            "fp_reference_document_code",
+            "fp_reference_doc_type",
+            "reference_document_type",
+            "l10n_cr_reference_document_type",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_doc_type
+
+        for field_name in (
+            "fp_reference_document_number",
+            "fp_reference_number",
+            "reference_document_number",
+            "reference_number",
+            "reversed_entry_number",
+            "l10n_cr_reference_document_number",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_number
+
+        for field_name in (
+            "fp_reference_issue_date",
+            "fp_reference_document_date",
+            "fp_reference_date",
+            "reference_document_date",
+            "reference_date",
+            "reversed_entry_date",
+            "l10n_cr_reference_issue_date",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_date
+
+        return values
 
     def _cr_process_after_payment(self):
         self._cr_dispatch_einvoice_flow()
