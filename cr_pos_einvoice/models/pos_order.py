@@ -732,34 +732,8 @@ class PosOrder(models.Model):
         self.ensure_one()
         Partner = self.env["res.partner"].sudo()
         partner = Partner.search([("name", "=", "Cliente general"), ("company_id", "=", False)], limit=1)
-        if partner:
-            # Ensure it stays "clean" for TE payloads.
-            partner.write(
-                {
-                    "vat": False,
-                    "phone": False,
-                    "mobile": False,
-                    "email": False,
-                    "street": False,
-                    "street2": False,
-                    "zip": False,
-                    "city": False,
-                    "state_id": False,
-                    "country_id": False,
-                    "fp_identification_type": False,
-                    "fp_province_id": False,
-                    "fp_canton_id": False,
-                    "fp_district_id": False,
-                    "fp_neighborhood_id": False,
-                    "fp_province_code": False,
-                    "fp_canton_code": False,
-                    "fp_district_code": False,
-                    "fp_neighborhood_code": False,
-                }
-            )
-            return partner
 
-        vals = {
+        clean_vals = {
             "name": "Cliente general",
             "company_id": False,
             "vat": False,
@@ -782,7 +756,16 @@ class PosOrder(models.Model):
             "fp_district_code": False,
             "fp_neighborhood_code": False,
         }
-        return Partner.create(vals)
+        # Compatibility with databases/versions where some partner fields are not available.
+        available_fields = set(Partner._fields)
+        clean_vals = {key: value for key, value in clean_vals.items() if key in available_fields}
+
+        if partner:
+            # Ensure it stays "clean" for TE payloads.
+            partner.write(clean_vals)
+            return partner
+
+        return Partner.create(clean_vals)
 
     def _cr_build_virtual_move(self, *, document_type, consecutivo, clave):
         """Build a non-persisted account.move that reuses l10n_cr_einvoice XML generator for POS data."""
