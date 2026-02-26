@@ -204,6 +204,7 @@ class TestPosEInvoice(TransactionCase):
 
     def test_build_virtual_move_for_nc_includes_reference_fields(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_invoice = self.env["account.move"].new({"move_type": "out_invoice", "name": "FAC-001"})
         reference_date = fields.Date.today()
         reference_values = {
             "fp_reference_document_type": "04",
@@ -213,13 +214,18 @@ class TestPosEInvoice(TransactionCase):
             "fp_reference_reason": "Devolución de mercadería",
         }
 
-        with patch.object(type(order), "_cr_build_refund_reference_values", lambda self: reference_values):
+        with patch.object(type(order), "_cr_build_refund_reference_values", lambda self: reference_values), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: origin_invoice
+        ):
             move = order._cr_build_virtual_move(
                 document_type="nc",
                 consecutivo="00100001030000000001",
                 clave="50601010100000000000000100001030000000001123456789",
             )
 
+        self.assertEqual(move.move_type, "out_refund")
         for field_name, expected in reference_values.items():
             if field_name in move._fields:
                 self.assertEqual(move[field_name], expected)
+        if "reversed_entry_id" in move._fields:
+            self.assertEqual(move.reversed_entry_id, origin_invoice)
