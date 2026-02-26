@@ -4,17 +4,46 @@
     <!-- Full receipt redesign for CR FE (TE/FE/NC) -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
         <xpath expr="//div[contains(@class, 'pos-receipt')]" position="replace">
-            <t t-set="raw" t-value="props || {}"/>
-            <t t-set="payload" t-value="raw.data || raw.receipt || raw.order_receipt || raw.orderReceipt || raw"/>
-            <t t-set="data" t-value="payload.data || payload.receipt || payload.order_receipt || payload.orderReceipt || payload"/>
-            <t t-set="company" t-value="data.company || payload.company || data.headerData || {}"/>
-            <t t-set="einvoice" t-value="data.einvoice || payload.einvoice || {}"/>
-            <t t-set="partner" t-value="data.partner || data.client || payload.partner || payload.client || {}"/>
-            <t t-set="orderlines" t-value="data.orderlines || data.order_lines || data.lines || payload.orderlines || payload.order_lines || payload.lines || []"/>
-            <t t-set="paymentlines" t-value="data.paymentlines || data.payment_lines || payload.paymentlines || payload.payment_lines || []"/>
-            <t t-set="subtotal" t-value="data.subtotal || payload.subtotal || data.total_without_tax || payload.total_without_tax || data.amount_untaxed || payload.amount_untaxed || ''"/>
-            <t t-set="tax" t-value="data.tax || payload.tax || data.total_tax || payload.total_tax || data.amount_tax || payload.amount_tax || ''"/>
-            <t t-set="totalWithTax" t-value="data.total_with_tax || payload.total_with_tax || data.total || payload.total || data.amount_total || payload.amount_total || ''"/>
+            <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
+            <t t-set="order" t-value="(props &amp;&amp; (props.order || props.currentOrder)) || null"/>
+            <t t-set="company" t-value="data.company || data.headerData || {}"/>
+            <t t-set="einvoice" t-value="data.einvoice || {}"/>
+            <t t-set="partner" t-value="data.partner || data.client || {}"/>
+
+            <t t-set="orderlines" t-value="
+                data.orderlines ||
+                data.order_lines ||
+                data.lines ||
+                ((order &amp;&amp; order.get_orderlines &amp;&amp; order.get_orderlines()) || [])
+            "/>
+
+            <t t-set="paymentlines" t-value="
+                data.paymentlines ||
+                data.payment_lines ||
+                ((order &amp;&amp; order.get_paymentlines &amp;&amp; order.get_paymentlines()) || [])
+            "/>
+
+            <t t-set="subtotal" t-value="
+                data.subtotal ||
+                data.total_without_tax ||
+                data.amount_untaxed ||
+                ((order &amp;&amp; order.get_total_without_tax &amp;&amp; env.utils.formatCurrency(order.get_total_without_tax())) || '')
+            "/>
+
+            <t t-set="tax" t-value="
+                data.tax ||
+                data.total_tax ||
+                data.amount_tax ||
+                ((order &amp;&amp; order.get_total_tax &amp;&amp; env.utils.formatCurrency(order.get_total_tax())) || '')
+            "/>
+
+            <t t-set="totalWithTax" t-value="
+                data.total_with_tax ||
+                data.total ||
+                data.amount_total ||
+                ((order &amp;&amp; order.get_total_with_tax &amp;&amp; env.utils.formatCurrency(order.get_total_with_tax())) || '')
+            "/>
+
             <div class="pos-receipt cr-fe-receipt">
                 <!-- Company header -->
                 <div class="cr-center cr-header">
@@ -81,23 +110,29 @@
 
                     <t t-foreach="orderlines" t-as="line" t-key="line.cid || line.id || line.product_name || line.product_id">
                         <div class="cr-line">
-                            <div class="cr-col-qty"><t t-esc="line.quantity || line.qty || ''"/></div>
+                            <div class="cr-col-qty"><t t-esc="line.quantity || line.qty || (line.get_quantity &amp;&amp; line.get_quantity()) || ''"/></div>
                             <div class="cr-col-prod">
-                                <div><t t-esc="line.product_name || line.productName || line.name || ''"/></div>
+                                <div><t t-esc="line.product_name || line.productName || line.name || (line.get_product &amp;&amp; line.get_product() &amp;&amp; line.get_product().display_name) || ''"/></div>
                                 <t t-if="line.discount &amp;&amp; line.discount &gt; 0">
                                     <div class="cr-small">Desc: <t t-esc="line.discount"/>%</div>
                                 </t>
                             </div>
-                            <div class="cr-col-price"><t t-esc="line.price || line.price_display || line.unit_price || ''"/></div>
+                            <div class="cr-col-price"><t t-esc="line.price || line.price_display || line.unit_price || (line.get_unit_price &amp;&amp; env.utils.formatCurrency(line.get_unit_price())) || ''"/></div>
                             <div class="cr-col-tax">
                                 <t t-if="line.tax_amount !== null &amp;&amp; line.tax_amount !== undefined">
                                     <t t-esc="env.utils.formatCurrency(line.tax_amount)"/>
+                                </t>
+                                <t t-elif="line.get_all_prices">
+                                    <t t-set="p" t-value="line.get_all_prices()"/>
+                                    <t t-esc="env.utils.formatCurrency((p &amp;&amp; p.tax) || 0)"/>
                                 </t>
                                 <t t-else="">
                                     <t t-esc="line.tax || line.price_tax || ''"/>
                                 </t>
                             </div>
-                            <div class="cr-col-total"><t t-esc="line.total || line.price_with_tax || line.price_subtotal_incl || ''"/></div>
+                            <div class="cr-col-total">
+                                <t t-esc="line.total || line.price_with_tax || line.price_subtotal_incl || (line.get_all_prices &amp;&amp; env.utils.formatCurrency(line.get_all_prices().priceWithTax || 0)) || ''"/>
+                            </div>
                         </div>
                     </t>
                 </div>
@@ -128,8 +163,8 @@
                     <t t-if="paymentlines.length">
                         <t t-foreach="paymentlines" t-as="pl" t-key="pl.cid || pl.id || pl.name || pl.amount">
                             <div class="cr-row">
-                                <div><t t-esc="pl.name || pl.payment_method || ''"/></div>
-                                <div class="cr-right"><t t-esc="pl.amount || pl.amount_formatted || ''"/></div>
+                                <div><t t-esc="pl.name || pl.payment_method || (pl.payment_method_id &amp;&amp; pl.payment_method_id.name) || ''"/></div>
+                                <div class="cr-right"><t t-esc="pl.amount || pl.amount_formatted || (pl.get_amount &amp;&amp; env.utils.formatCurrency(pl.get_amount())) || ''"/></div>
                             </div>
                         </t>
                     </t>
