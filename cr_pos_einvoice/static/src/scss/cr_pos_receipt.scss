@@ -25,3 +25,10 @@
 
 .cr-mono { font-family: monospace; font-size: 10px; letter-spacing: 0.1px; }
 .cr-wrap { word-break: break-all; overflow-wrap: anywhere; }
+
+.cr-lines-head,
+.cr-lines-row { display: flex; gap: 4px; align-items: flex-start; }
+.cr-lines-head { font-weight: 700; border-bottom: 1px solid #000; padding: 2px 0 3px; }
+.cr-lines-row { padding: 2px 0; }
+.cr-col-desc { width: 58%; word-break: break-word; overflow-wrap: anywhere; }
+.cr-col-amt { width: 30%; white-space: nowrap; }

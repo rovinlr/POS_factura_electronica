@@ -43,6 +43,16 @@ const applyFeFields = (order, row) => {
 
 const hasRequiredFeData = (values) => Boolean(values?.cr_fe_consecutivo && values?.cr_fe_clave);
 
+const isReceiptScreen = (screen) => {
+    if (!screen) {
+        return false;
+    }
+    if (typeof screen === "string") {
+        return screen === "ReceiptScreen";
+    }
+    return firstDefined(screen.name, screen.component?.name, screen.constructor?.name) === "ReceiptScreen";
+};
+
 const needsFeWait = (values) => {
     const documentType = firstDefined(values?.cr_fe_document_type, values?.document_type);
     if (!documentType) {
@@ -64,8 +74,8 @@ patch(PosStore.prototype, {
         const timeoutMs = options.timeoutMs || 12000;
         const intervalMs = options.intervalMs || 700;
         const startedAt = Date.now();
-        const orderId = firstDefined(row.id, row.server_id, row.backendId, order.server_id, order.id);
-        const orderRef = firstDefined(row.pos_reference, row.name, order.name, order.pos_reference, order.uid);
+        const orderId = firstDefined(row?.id, row?.server_id, row?.backendId, order?.server_id, order?.id);
+        const orderRef = firstDefined(row?.pos_reference, row?.name, order?.name, order?.pos_reference, order?.uid);
 
         while (Date.now() - startedAt < timeoutMs) {
             const domain = orderId
@@ -80,7 +90,7 @@ patch(PosStore.prototype, {
             const [result] = await orm.call(
                 "pos.order",
                 "search_read",
-                [domain, ["cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
+                [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
                 { limit: 1 }
             );
             if (result) {
@@ -93,6 +103,18 @@ patch(PosStore.prototype, {
         }
 
         return false;
+    },
+
+
+    async showScreen(screen, props) {
+        const activeOrder = this.get_order ? this.get_order() : this.selectedOrder;
+        if (isReceiptScreen(screen) && activeOrder && needsFeWait(activeOrder)) {
+            await this._crWaitForFeFields(activeOrder, activeOrder);
+        }
+        if (super.showScreen) {
+            return super.showScreen(...arguments);
+        }
+        return undefined;
     },
 
     async postSyncAllOrders() {

@@ -63,6 +63,19 @@
 
                 <div class="cr-divider"/>
 
+                <div class="cr-lines-head">
+                    <div class="cr-col-qty"><strong>Cant</strong></div>
+                    <div class="cr-col-desc"><strong>Descripción</strong></div>
+                    <div class="cr-col-amt cr-right"><strong>Importe</strong></div>
+                </div>
+                <t t-foreach="orderlines" t-as="line" t-key="line_index">
+                    <div class="cr-lines-row">
+                        <div class="cr-col-qty"><t t-esc="line.qty || line.quantity || line.count || 0"/></div>
+                        <div class="cr-col-desc"><t t-esc="line.product_name || line.full_product_name || line.name || ''"/></div>
+                        <div class="cr-col-amt cr-right"><t t-esc="line.price_display || line.price_with_tax || line.price || line.price_subtotal_incl || ''"/></div>
+                    </div>
+                </t>
+
                 <div class="cr-fe-extra">
                     <div class="cr-divider"/>
 
