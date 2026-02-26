@@ -145,6 +145,21 @@ class PosOrder(models.Model):
             )
         )
 
+    def _cr_call_service_method(self, method_names, *args, **kwargs):
+        """Call first available service method from a compatibility list."""
+        self.ensure_one()
+        service = self._cr_service()
+        for method_name in method_names:
+            method = getattr(service, method_name, False)
+            if method:
+                return method(*args, **kwargs)
+        raise UserError(
+            _(
+                "No se encontró un método compatible en l10n_cr.einvoice.service. "
+                "Revise el contrato de integración de cr_pos_einvoice."
+            )
+        )
+
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
         normalized = (status or "").strip().lower()
