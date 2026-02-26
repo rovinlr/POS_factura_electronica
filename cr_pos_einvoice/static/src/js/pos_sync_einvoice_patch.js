@@ -1,40 +1,10 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { PosStore } from "@point_of_sale/app/store/pos_store";
+import { PosStore } from "@point_of_sale/app/services/pos_store";
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
-const isObject = (value) => value && typeof value === "object";
-
-const normalizeOrders = (orders) => {
-    if (!orders) {
-        return [];
-    }
-    if (Array.isArray(orders)) {
-        return orders.filter(Boolean);
-    }
-    return [orders];
-};
-
-const extractServerRows = (result) => {
-    if (!result) {
-        return [];
-    }
-    if (Array.isArray(result)) {
-        return result.flatMap((entry) => extractServerRows(entry));
-    }
-    if (!isObject(result)) {
-        return [];
-    }
-
-    const looksLikeOrderPayload = "id" in result || "server_id" in result || "pos_reference" in result;
-    if (looksLikeOrderPayload) {
-        return [result];
-    }
-
-    return Object.values(result).flatMap((entry) => extractServerRows(entry));
-};
 
 const isSameOrder = (order, row) => {
     const orderServerId = firstDefined(order.server_id, order.backendId, order.id);
@@ -70,33 +40,23 @@ const applyFeFields = (order, row) => {
 };
 
 patch(PosStore.prototype, {
-    async _save_to_server() {
-        const ordersArg = arguments[0];
-        const result = await super._save_to_server(...arguments);
-        this._cr_apply_einvoice_values_from_server(ordersArg, result);
-        return result;
-    },
+    async postSyncAllOrders() {
+        if (super.postSyncAllOrders) {
+            await super.postSyncAllOrders(...arguments);
+        }
 
-    async push_orders() {
-        const ordersArg = arguments[0];
-        const result = await super.push_orders(...arguments);
-        this._cr_apply_einvoice_values_from_server(ordersArg, result);
-        return result;
-    },
-
-    _cr_apply_einvoice_values_from_server(ordersArg, result) {
-        const orders = normalizeOrders(ordersArg);
+        const rows = arguments[0];
+        if (!Array.isArray(rows) || !rows.length) {
+            return;
+        }
+        const orders = this.models?.["pos.order"]?.getAll?.() || [];
         if (!orders.length) {
             return;
         }
-        const rows = extractServerRows(result);
-        if (!rows.length) {
-            return;
-        }
 
-        for (const order of orders) {
-            const row = rows.find((entry) => isSameOrder(order, entry));
-            if (row) {
+        for (const row of rows) {
+            const targetOrders = orders.filter((order) => isSameOrder(order, row));
+            for (const order of targetOrders) {
                 applyFeFields(order, row);
             }
         }
