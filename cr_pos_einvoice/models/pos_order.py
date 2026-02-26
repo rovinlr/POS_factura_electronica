@@ -1076,8 +1076,9 @@ class PosOrder(models.Model):
                 )
             )
 
+        is_credit_note = (document_type or "").lower() == "nc" or self.amount_total < 0
         move_vals = {
-            "move_type": "out_invoice",
+            "move_type": "out_refund" if is_credit_note else "out_invoice",
             "company_id": company.id,
             "journal_id": journal.id if journal else False,
             "partner_id": (self.partner_id.id if self.partner_id else self._cr_get_general_customer_partner().id),
@@ -1091,6 +1092,11 @@ class PosOrder(models.Model):
             "fp_economic_activity_id": self.fp_economic_activity_id.id if self.fp_economic_activity_id else False,
             "fp_consecutive_number": consecutivo,
         }
+        if is_credit_note:
+            move_vals.update(self._cr_build_refund_reference_values())
+            origin_invoice = self._cr_get_origin_invoice_for_refund()
+            if origin_invoice and "reversed_entry_id" in self.env["account.move"]._fields:
+                move_vals["reversed_entry_id"] = origin_invoice.id
         move = self.env["account.move"].with_company(company).new(move_vals)
         # Asegura cálculo de totales para XML.
         move._compute_amount()
