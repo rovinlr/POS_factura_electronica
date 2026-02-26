@@ -53,6 +53,26 @@ class PosOrder(models.Model):
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
     cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
+    cr_fe_reference_document_type = fields.Char(
+        string="Tipo documento referencia FE",
+        compute="_compute_cr_fe_reference_preview",
+    )
+    cr_fe_reference_document_number = fields.Char(
+        string="Número documento referencia FE",
+        compute="_compute_cr_fe_reference_preview",
+    )
+    cr_fe_reference_issue_date = fields.Date(
+        string="Fecha emisión referencia FE",
+        compute="_compute_cr_fe_reference_preview",
+    )
+    cr_fe_reference_code = fields.Char(
+        string="Código referencia FE",
+        compute="_compute_cr_fe_reference_preview",
+    )
+    cr_fe_reference_reason = fields.Char(
+        string="Razón referencia FE",
+        compute="_compute_cr_fe_reference_preview",
+    )
     fp_document_type = fields.Selection(
         selection="_selection_fp_document_type",
         string="Tipo de comprobante FE",
@@ -204,6 +224,26 @@ class PosOrder(models.Model):
             order.fp_sale_condition = method.fp_sale_condition if method else False
             order.fp_payment_method = method.fp_payment_method if method else False
             order.fp_economic_activity_id = order.config_id.fp_economic_activity_id
+
+    @api.depends(
+        "amount_total",
+        "date_order",
+        "cr_fe_document_type",
+        "lines.refunded_orderline_id.order_id",
+        "lines.refunded_orderline_id.order_id.cr_fe_clave",
+        "lines.refunded_orderline_id.order_id.cr_fe_consecutivo",
+        "lines.refunded_orderline_id.order_id.cr_fe_document_type",
+        "lines.refunded_orderline_id.order_id.date_order",
+        "lines.refunded_orderline_id.order_id.account_move",
+    )
+    def _compute_cr_fe_reference_preview(self):
+        for order in self:
+            reference_data = order._cr_get_refund_reference_data()
+            order.cr_fe_reference_document_type = reference_data.get("document_type")
+            order.cr_fe_reference_document_number = reference_data.get("number")
+            order.cr_fe_reference_issue_date = reference_data.get("issue_date")
+            order.cr_fe_reference_code = reference_data.get("code")
+            order.cr_fe_reference_reason = reference_data.get("reason")
 
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
@@ -506,10 +546,76 @@ class PosOrder(models.Model):
     def _cr_build_refund_reference_values(self):
         """Populate FE reference fields when POS generates a credit note (NC)."""
         self.ensure_one()
-        if self.amount_total >= 0:
+        reference_data = self._cr_get_refund_reference_data()
+        if not reference_data:
             return {}
 
         move_fields = self.env["account.move"]._fields
+        reference_doc_type = reference_data["document_type"]
+        reference_number = reference_data["number"]
+        reference_date = reference_data["issue_date"]
+        reference_code = reference_data["code"]
+        reference_reason = reference_data["reason"]
+        values = {}
+
+        for field_name in (
+            "fp_reference_document_type",
+            "fp_reference_doc_type",
+            "reference_document_type",
+            "l10n_cr_reference_document_type",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_doc_type
+
+        for field_name in (
+            "fp_reference_document_code",
+            "fp_reference_code",
+            "reference_document_code",
+            "reference_code",
+            "l10n_cr_reference_code",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_code
+
+        for field_name in (
+            "fp_reference_document_number",
+            "fp_reference_number",
+            "reference_document_number",
+            "reference_number",
+            "reversed_entry_number",
+            "l10n_cr_reference_document_number",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_number
+
+        for field_name in (
+            "fp_reference_issue_date",
+            "fp_reference_document_date",
+            "fp_reference_date",
+            "reference_document_date",
+            "reference_date",
+            "reversed_entry_date",
+            "l10n_cr_reference_issue_date",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_date
+
+        for field_name in (
+            "fp_reference_reason",
+            "reference_reason",
+            "l10n_cr_reference_reason",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_reason
+
+        return values
+
+    def _cr_get_refund_reference_data(self):
+        """Return normalized FE reference data for refund orders."""
+        self.ensure_one()
+        if self.amount_total >= 0:
+            return {}
+
         origin_order = self._cr_get_origin_order_for_refund()
         origin_invoice = self._cr_get_origin_invoice_for_refund()
 
@@ -539,42 +645,23 @@ class PosOrder(models.Model):
             or (origin_invoice.invoice_date if origin_invoice else False)
             or fields.Date.context_today(self)
         )
-        values = {}
-
-        for field_name in (
-            "fp_reference_document_type",
-            "fp_reference_document_code",
-            "fp_reference_doc_type",
-            "reference_document_type",
-            "l10n_cr_reference_document_type",
-        ):
-            if field_name in move_fields:
-                values[field_name] = reference_doc_type
-
-        for field_name in (
-            "fp_reference_document_number",
-            "fp_reference_number",
-            "reference_document_number",
-            "reference_number",
-            "reversed_entry_number",
-            "l10n_cr_reference_document_number",
-        ):
-            if field_name in move_fields:
-                values[field_name] = reference_number
-
-        for field_name in (
-            "fp_reference_issue_date",
-            "fp_reference_document_date",
-            "fp_reference_date",
-            "reference_document_date",
-            "reference_date",
-            "reversed_entry_date",
-            "l10n_cr_reference_issue_date",
-        ):
-            if field_name in move_fields:
-                values[field_name] = reference_date
-
-        return values
+        reference_code = (
+            (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
+            or "01"
+        )
+        reference_reason = (
+            (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
+            or _("Devolución de mercadería")
+        )
+        return {
+            "document_type": reference_doc_type,
+            "number": reference_number,
+            "issue_date": reference_date,
+            "code": reference_code,
+            "reason": reference_reason,
+        }
 
     def _cr_process_after_payment(self):
         self._cr_dispatch_einvoice_flow()

@@ -152,10 +152,16 @@ class TestPosEInvoice(TransactionCase):
         move_fields = self.env["account.move"]._fields
         type_candidates = [
             "fp_reference_document_type",
-            "fp_reference_document_code",
             "fp_reference_doc_type",
             "reference_document_type",
             "l10n_cr_reference_document_type",
+        ]
+        code_candidates = [
+            "fp_reference_document_code",
+            "fp_reference_code",
+            "reference_document_code",
+            "reference_code",
+            "l10n_cr_reference_code",
         ]
         number_candidates = [
             "fp_reference_document_number",
@@ -174,13 +180,46 @@ class TestPosEInvoice(TransactionCase):
             "reversed_entry_date",
             "l10n_cr_reference_issue_date",
         ]
+        reason_candidates = [
+            "fp_reference_reason",
+            "reference_reason",
+            "l10n_cr_reference_reason",
+        ]
 
         for field_name in type_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), "04")
+        for field_name in code_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "01")
         for field_name in number_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), origin_order.cr_fe_clave)
         for field_name in date_candidates:
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), origin_order.date_order.date())
+        for field_name in reason_candidates:
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "Devolución de mercadería")
+
+    def test_get_refund_reference_data_for_preview_returns_required_fields(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -5.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "fe",
+                "cr_fe_clave": "50601010100000000000000100001010000000009999999999",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "01")
+        self.assertEqual(reference_data.get("number"), origin_order.cr_fe_clave)
+        self.assertEqual(reference_data.get("issue_date"), origin_order.date_order.date())
+        self.assertEqual(reference_data.get("code"), "01")
+        self.assertEqual(reference_data.get("reason"), "Devolución de mercadería")
