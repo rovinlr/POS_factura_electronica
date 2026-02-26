@@ -81,15 +81,69 @@ class PosOrder(models.Model):
             order.cr_fe_attachment_ids = attachments_by_order[order.id]
 
     def _cr_service(self):
-        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
-        if not service_model:
-            raise UserError(
-                _(
-                    "No se encontró el servicio l10n_cr.einvoice.service. "
-                    "Instala/configura el módulo de Factura Electrónica de Costa Rica (l10n_cr_einvoice)."
-                )
+        return self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
+
+    def _cr_call_target_method(self, target, method_name, args, kwargs):
+        method = getattr(target, method_name, False)
+        if not method:
+            return False, None
+        try:
+            return True, method(*args, **kwargs)
+        except TypeError as error:
+            # Compatibilidad para implementaciones en pos.order que no reciben order_id como primer argumento.
+            if target is self and args and args[0] == self.id:
+                try:
+                    return True, method(*args[1:], **kwargs)
+                except TypeError:
+                    pass
+            raise error
+
+    def _cr_call_service_method(self, method_names, *args, **kwargs):
+        """Call first available FE backend method from service or pos.order."""
+        self.ensure_one()
+        tried_backends = []
+        backends = []
+        service = self._cr_service()
+        if service:
+            backends.append(("l10n_cr.einvoice.service", service))
+        backends.append(("pos.order", self))
+
+        for backend_name, backend in backends:
+            tried_backends.append(backend_name)
+            for method_name in method_names:
+                found, result = self._cr_call_target_method(backend, method_name, args, kwargs)
+                if found:
+                    return result
+
+        raise UserError(
+            _(
+                "No se encontró un método compatible para FE POS. "
+                "Backends revisados: %(backends)s. Métodos buscados: %(methods)s."
             )
-        return service_model
+            % {
+                "backends": ", ".join(tried_backends),
+                "methods": ", ".join(method_names),
+            }
+        )
+
+    def _cr_call_status_backend(self):
+        self.ensure_one()
+        status_methods = [
+            "action_check_hacienda_status",
+            "action_consult_hacienda",
+            "action_get_hacienda_status",
+            "action_refresh_hacienda_status",
+        ]
+        for method_name in status_methods:
+            found, _result = self._cr_call_target_method(self, method_name, tuple(), {})
+            if found:
+                return True
+        raise UserError(
+            _(
+                "No se encontró método público para consultar estado FE en pos.order y tampoco un "
+                "servicio compatible en l10n_cr_einvoice."
+            )
+        )
 
     def _cr_call_service_method(self, method_names, *args, **kwargs):
         """Call first available service method from a compatibility list."""
@@ -514,11 +568,17 @@ class PosOrder(models.Model):
         self.ensure_one()
         if self.invoice_status == "invoiced":
             return False
-        status = self._cr_call_service_method(
-            ["consult_status", "check_status_from_pos_order", "check_status", "get_pos_order_status"],
-            self.id,
-            idempotency_key=self.cr_fe_idempotency_key,
-        )
+
+        status = False
+        try:
+            status = self._cr_call_service_method(
+                ["consult_status", "check_status_from_pos_order", "check_status", "get_pos_order_status"],
+                self.id,
+                idempotency_key=self.cr_fe_idempotency_key,
+            )
+        except UserError:
+            self._cr_call_status_backend()
+            status = {"status": self.cr_fe_status}
 
         if isinstance(status, dict):
             normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
