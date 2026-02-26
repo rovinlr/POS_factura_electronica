@@ -1,10 +1,11 @@
 import logging
+from collections import defaultdict
 from datetime import timedelta
-from importlib import import_module
+
+from psycopg2 import IntegrityError
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
-
 
 
 class PosOrder(models.Model):
@@ -13,6 +14,7 @@ class PosOrder(models.Model):
     _logger = logging.getLogger(__name__)
 
     _CR_INVOICE_MOVE_TYPES = ("out_invoice", "out_refund")
+    _CR_FINAL_STATES = ("accepted", "rejected", "not_applicable")
 
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
     cr_fe_document_type = fields.Selection(
@@ -36,7 +38,9 @@ class PosOrder(models.Model):
         string="Estado FE",
         default="draft",
         copy=False,
+        index=True,
     )
+    cr_fe_error_code = fields.Char(string="Código de error FE", copy=False)
     cr_fe_clave = fields.Char(string="Clave FE", copy=False)
     cr_fe_consecutivo = fields.Char(string="Consecutivo FE", copy=False)
     cr_fe_idempotency_key = fields.Char(string="Clave de idempotencia FE", copy=False, index=True)
@@ -64,21 +68,28 @@ class PosOrder(models.Model):
             else:
                 order.cr_fe_document_type = False
 
+    def _compute_cr_fe_attachment_ids(self):
+        attachments_by_order = defaultdict(lambda: self.env["ir.attachment"])
+        if self.ids:
+            attachments = self.env["ir.attachment"].search(
+                [("res_model", "=", "pos.order"), ("res_id", "in", self.ids)], order="id desc"
+            )
+            for attachment in attachments:
+                attachments_by_order[attachment.res_id] |= attachment
+
+        for order in self:
+            order.cr_fe_attachment_ids = attachments_by_order[order.id]
+
     def _cr_service(self):
-        """Resolve FE service without breaking module import at registry load time."""
-        service_paths = [
-            "odoo.addons.l10n_cr_einvoice.services.einvoice_service",
-            "l10n_cr_einvoice.services.einvoice_service",
-            "odoo.addons.cr_pos_einvoice.services.einvoice_service_fallback",
-            "cr_pos_einvoice.services.einvoice_service_fallback",
-        ]
-        for service_path in service_paths:
-            try:
-                module = import_module(service_path)
-                return module.EInvoiceService(self.env)
-            except (ImportError, AttributeError):
-                continue
-        raise UserError(_("No se pudo inicializar el servicio de Factura Electrónica."))
+        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
+        if not service_model:
+            raise UserError(
+                _(
+                    "No se encontró el servicio l10n_cr.einvoice.service. "
+                    "Instala/configura el módulo de Factura Electrónica de Costa Rica (l10n_cr_einvoice)."
+                )
+            )
+        return service_model
 
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
@@ -97,8 +108,8 @@ class PosOrder(models.Model):
             "fallido": "error",
             "enviado": "sent",
             "sent": "sent",
-            "procesando": "sent",
-            "processing": "sent",
+            "procesando": "processing",
+            "processing": "processing",
             "pendiente": "pending",
             "to_send": "pending",
             "pending": "pending",
@@ -111,12 +122,6 @@ class PosOrder(models.Model):
         if default_status:
             return "sent"
         return self.cr_fe_status or "pending"
-
-    def _compute_cr_fe_attachment_ids(self):
-        for order in self:
-            order.cr_fe_attachment_ids = self.env["ir.attachment"].search(
-                [("res_model", "=", "pos.order"), ("res_id", "=", order.id)], order="id desc"
-            )
 
     def _cr_get_real_invoice_move(self):
         self.ensure_one()
@@ -135,7 +140,7 @@ class PosOrder(models.Model):
             return False
         if self._cr_has_real_invoice_move():
             return False
-        return self.cr_fe_status not in ("accepted", "rejected")
+        return self.cr_fe_status not in self._CR_FINAL_STATES
 
     def _cr_get_pos_document_type(self):
         self.ensure_one()
@@ -145,25 +150,34 @@ class PosOrder(models.Model):
         self.ensure_one()
         return f"POS-{self.company_id.id}-{self.config_id.id}-{self.name or self.pos_reference or self.id}"
 
+    def _cr_sequence_code(self, document_type):
+        self.ensure_one()
+        doc_type = (document_type or "te").lower()
+        return f"cr.pos.fe.{self.company_id.id}.{doc_type}"
+
+    def _cr_get_or_create_sequence(self, document_type):
+        self.ensure_one()
+        sequence_model = self.env["ir.sequence"].sudo().with_company(self.company_id)
+        code = self._cr_sequence_code(document_type)
+        sequence = sequence_model.search([("code", "=", code), ("company_id", "=", self.company_id.id)], limit=1)
+        if not sequence:
+            sequence = sequence_model.create(
+                {
+                    "name": f"POS FE {self.company_id.display_name} {document_type.upper()}",
+                    "code": code,
+                    "company_id": self.company_id.id,
+                    "implementation": "no_gap",
+                    "padding": 10,
+                    "number_increment": 1,
+                    "number_next": 1,
+                }
+            )
+        return sequence
+
     def _cr_get_next_consecutivo_by_document_type(self, document_type):
         self.ensure_one()
-        doc_type = document_type or self.cr_fe_document_type or "te"
-        domain = [
-            ("company_id", "=", self.company_id.id),
-            ("cr_fe_document_type", "=", doc_type),
-            ("cr_fe_consecutivo", "!=", False),
-            ("id", "!=", self.id),
-        ]
-        previous_orders = self.search(domain)
-        highest = 0
-        for order in previous_orders:
-            raw = order.cr_fe_consecutivo or ""
-            digits = "".join(char for char in str(raw) if char.isdigit())
-            if not digits:
-                continue
-            sequence = digits[-10:]
-            highest = max(highest, int(sequence))
-        return str(highest + 1).zfill(10)
+        sequence = self._cr_get_or_create_sequence(document_type or self.cr_fe_document_type or "te")
+        return sequence.next_by_id()
 
     def _cr_get_fe_document_code(self, document_type=None):
         self.ensure_one()
@@ -177,7 +191,7 @@ class PosOrder(models.Model):
         terminal = str(getattr(self.company_id, "fp_terminal_code", "") or "1")
         sequence = self._cr_get_next_consecutivo_by_document_type(document_type)
         doc_code = self._cr_get_fe_document_code(document_type=document_type)
-        return f"{branch.zfill(3)}{terminal.zfill(5)}{doc_code}{sequence.zfill(10)}"
+        return f"{branch.zfill(3)}{terminal.zfill(5)}{doc_code}{str(sequence).zfill(10)}"
 
     def _cr_generate_fe_clave(self, consecutivo):
         self.ensure_one()
@@ -192,6 +206,23 @@ class PosOrder(models.Model):
         security_code = str(self.id or 0).zfill(8)[-8:]
         situation = "1"
         return f"{country_code}{issue_ddmmyy}{vat_digits}{consecutivo}{situation}{security_code}"
+
+    def _cr_validate_before_send(self):
+        self.ensure_one()
+        if self.state not in ("paid", "done", "invoiced"):
+            raise UserError(_("El pedido debe estar pagado/finalizado para emitir FE."))
+        if not self.company_id.vat and not self.company_id.partner_id.vat:
+            raise UserError(_("La compañía emisora no tiene identificación (VAT) configurada."))
+        if not self.payment_ids:
+            raise UserError(_("El pedido no tiene pagos registrados."))
+
+        expected_total = self.amount_tax + (self.amount_total - self.amount_tax)
+        if abs(expected_total - self.amount_total) > 0.01:
+            raise UserError(_("Inconsistencia en totales del pedido; revise impuestos/líneas antes de enviar."))
+
+        method = self._cr_get_primary_payment_method()
+        if method and (not method.fp_payment_method or not method.fp_sale_condition):
+            raise UserError(_("El método de pago POS principal debe tener código FE y condición FE configurados."))
 
     def action_cr_send_hacienda(self):
         for order in self:
@@ -274,7 +305,7 @@ class PosOrder(models.Model):
             invoice = order._cr_get_real_invoice_move()
             if not invoice:
                 message = _("Pedido marcado como facturado, pero no existe account.move asociado.")
-                order.write({"cr_fe_status": "error", "cr_fe_last_error": message})
+                order.write({"cr_fe_status": "error", "cr_fe_error_code": "invoice_missing", "cr_fe_last_error": message})
                 self._logger.error("POS FE inconsistencia en pedido %s: %s", order.name, message)
                 continue
 
@@ -291,6 +322,7 @@ class PosOrder(models.Model):
                     "cr_fe_clave": invoice.fp_external_id if "fp_external_id" in invoice._fields else order.cr_fe_clave,
                     "cr_fe_consecutivo": invoice.fp_consecutive_number if "fp_consecutive_number" in invoice._fields else order.cr_fe_consecutivo,
                     "cr_fe_status": mapped_status,
+                    "cr_fe_error_code": False,
                     "cr_fe_xml_attachment_id": invoice.fp_xml_attachment_id.id if "fp_xml_attachment_id" in invoice._fields and invoice.fp_xml_attachment_id else order.cr_fe_xml_attachment_id.id,
                     "cr_fe_response_attachment_id": invoice.fp_response_xml_attachment_id.id
                     if "fp_response_xml_attachment_id" in invoice._fields and invoice.fp_response_xml_attachment_id
@@ -302,8 +334,24 @@ class PosOrder(models.Model):
         for order in self:
             if not order._cr_should_emit_ticket():
                 continue
-            order._cr_prepare_te_document()
-            order.write({"cr_fe_status": "pending", "cr_fe_last_error": False, "cr_fe_next_try": fields.Datetime.now()})
+            try:
+                order._cr_prepare_te_document()
+                order.write(
+                    {
+                        "cr_fe_status": "pending",
+                        "cr_fe_last_error": False,
+                        "cr_fe_error_code": False,
+                        "cr_fe_next_try": fields.Datetime.now(),
+                    }
+                )
+            except UserError as error:
+                order.write(
+                    {
+                        "cr_fe_status": "error",
+                        "cr_fe_error_code": "validation",
+                        "cr_fe_last_error": str(error),
+                    }
+                )
 
     def _cr_prepare_invoice_fe_values(self, invoice):
         vals = {
@@ -356,49 +404,35 @@ class PosOrder(models.Model):
         if self.invoice_status == "invoiced" or not self._cr_should_emit_ticket():
             return False
 
+        self._cr_validate_before_send()
+
         idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
         doc_type = self._cr_get_pos_document_type()
         consecutivo = self.cr_fe_consecutivo or self._cr_generate_fe_consecutivo(document_type=doc_type)
         clave = self.cr_fe_clave or self._cr_generate_fe_clave(consecutivo)
 
-        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
-        if service_model:
-            result = service_model.build_pos_xml_from_order(
-                self.id,
-                consecutivo=consecutivo,
-                idempotency_key=idempotency_key,
-                clave=clave,
-                document_type=doc_type,
-            )
-        else:
-            service = self._cr_service()
-            payload = service.build_payload_from_pos_order(self)
-            payload.update(
-                {
-                    "document_type": doc_type,
-                    "idempotency_key": idempotency_key,
-                    "consecutivo": consecutivo,
-                    "clave": clave,
-                }
-            )
-            signed_xml = service.sign_xml(service.generate_xml(payload, doc_type))
-            attachment = service.attach_xml(self, signed_xml, kind="document")
-            result = {
-                "ok": True,
-                "status": "pending",
-                "xml_attachment_id": attachment.id,
-            }
-
-        self.write(
-            {
-                "cr_fe_status": "pending",
-                "cr_fe_document_type": doc_type,
-                "cr_fe_idempotency_key": idempotency_key,
-                "cr_fe_consecutivo": consecutivo,
-                "cr_fe_clave": clave,
-                "cr_fe_xml_attachment_id": result.get("xml_attachment_id") or self.cr_fe_xml_attachment_id.id,
-            }
+        result = self._cr_service().build_pos_xml_from_order(
+            self.id,
+            consecutivo=consecutivo,
+            idempotency_key=idempotency_key,
+            clave=clave,
+            document_type=doc_type,
         )
+
+        values = {
+            "cr_fe_status": "pending",
+            "cr_fe_document_type": doc_type,
+            "cr_fe_idempotency_key": idempotency_key,
+            "cr_fe_consecutivo": consecutivo,
+            "cr_fe_clave": clave,
+            "cr_fe_xml_attachment_id": result.get("xml_attachment_id") or self.cr_fe_xml_attachment_id.id,
+            "cr_fe_error_code": False,
+        }
+        try:
+            self.write(values)
+        except IntegrityError as error:
+            self.env.cr.rollback()
+            raise UserError(_("La llave de idempotencia ya fue utilizada para esta compañía.")) from error
         return True
 
     def _cr_send_pending_te_to_hacienda(self, force=False):
@@ -411,54 +445,40 @@ class PosOrder(models.Model):
             self._cr_prepare_te_document()
 
         try:
-            service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
-            if service_model:
-                result = service_model.send_to_hacienda(
-                    self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type()
-                )
-            else:
-                service = self._cr_service()
-                doc_type = self.cr_fe_document_type or self._cr_get_pos_document_type()
-                payload = service.build_payload_from_pos_order(self)
-                payload.update(
-                    {
-                        "document_type": doc_type,
-                        "idempotency_key": self.cr_fe_idempotency_key or self._cr_build_idempotency_key(),
-                        "consecutivo": self.cr_fe_consecutivo,
-                        "clave": self.cr_fe_clave,
-                    }
-                )
-                xml_blob = (self.cr_fe_xml_attachment_id and self.cr_fe_xml_attachment_id.raw) or b""
-                if not xml_blob:
-                    xml_blob = service.sign_xml(service.generate_xml(payload, doc_type))
-                response = service.send_to_hacienda(payload, xml_blob)
-                parsed = service.parse_hacienda_response(response)
-                response_xml = service.build_hacienda_response_xml(response, parsed)
-                response_attachment = service.attach_xml(self, response_xml, kind="response") if response_xml else False
-                result = {
-                    "ok": True,
-                    "status": parsed.get("status") or "sent",
-                    "response_attachment_id": response_attachment.id if response_attachment else False,
-                }
-
+            self._cr_validate_before_send()
+            result = self._cr_service().send_to_hacienda(
+                self.id, document_type=self.cr_fe_document_type or self._cr_get_pos_document_type()
+            )
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
                 {
                     "cr_fe_status": normalized_status if result.get("ok") else "error_retry",
                     "cr_fe_retry_count": 0 if result.get("ok") else self.cr_fe_retry_count,
                     "cr_fe_last_error": False if result.get("ok") else result.get("reason"),
+                    "cr_fe_error_code": False if result.get("ok") else "send_error",
                     "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5) if not result.get("ok") else False,
                     "cr_fe_last_send_date": fields.Datetime.now(),
                     "cr_fe_response_attachment_id": result.get("response_attachment_id") or self.cr_fe_response_attachment_id.id,
                 }
             )
             return bool(result.get("ok"))
+        except UserError as error:
+            self.write(
+                {
+                    "cr_fe_status": "error",
+                    "cr_fe_error_code": "validation",
+                    "cr_fe_last_error": str(error),
+                    "cr_fe_next_try": False,
+                }
+            )
+            return False
         except Exception as error:  # noqa: BLE001
             retries = self.cr_fe_retry_count + 1
             self.write(
                 {
                     "cr_fe_status": "error_retry",
                     "cr_fe_retry_count": retries,
+                    "cr_fe_error_code": "send_exception",
                     "cr_fe_last_error": str(error),
                     "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=min(60, retries * 5)),
                 }
@@ -469,19 +489,13 @@ class PosOrder(models.Model):
         self.ensure_one()
         if self.invoice_status == "invoiced":
             return False
-        service_model = self.env.registry.models.get("l10n_cr.einvoice.service") and self.env["l10n_cr.einvoice.service"]
-        if service_model:
-            status = service_model.consult_status(self.id)
-        else:
-            status = {
-                "status": "processing" if self.cr_fe_status == "sent" else (self.cr_fe_status or "sent"),
-                "response_attachment_id": self.cr_fe_response_attachment_id.id if self.cr_fe_response_attachment_id else False,
-            }
+        status = self._cr_service().consult_status(self.id)
 
         if isinstance(status, dict):
             normalized = self._cr_normalize_hacienda_status(status.get("status"), default_status=False)
             values = {
                 "cr_fe_status": normalized,
+                "cr_fe_error_code": False if normalized in self._CR_FINAL_STATES else self.cr_fe_error_code,
                 "cr_fe_next_try": False if normalized in ("accepted", "rejected") else fields.Datetime.now() + timedelta(minutes=5),
             }
             if status.get("response_attachment_id"):
