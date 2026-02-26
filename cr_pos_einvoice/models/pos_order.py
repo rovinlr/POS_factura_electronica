@@ -1092,7 +1092,7 @@ class PosOrder(models.Model):
             "fp_economic_activity_id": self.fp_economic_activity_id.id if self.fp_economic_activity_id else False,
             "fp_consecutive_number": consecutivo,
         }
-        if is_credit_note:
+       if is_credit_note:
             move_vals.update(self._cr_build_refund_reference_values())
             origin_invoice = self._cr_get_origin_invoice_for_refund()
             if origin_invoice and "reversed_entry_id" in self.env["account.move"]._fields:
