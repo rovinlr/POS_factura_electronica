@@ -444,6 +444,21 @@ class PosOrder(models.Model):
         if method and (not method.fp_payment_method or not method.fp_sale_condition):
             raise UserError(_("El método de pago POS principal debe tener código FE y condición FE configurados."))
 
+    def _cr_has_complete_refund_reference_data(self):
+        """Return True when a credit note has all mandatory FE reference fields."""
+        self.ensure_one()
+        if not self._cr_is_credit_note_order():
+            return True
+
+        reference_data = self._cr_get_refund_reference_data()
+        required_fields = ("document_type", "number", "issue_date")
+        return bool(reference_data and all(reference_data.get(field_name) for field_name in required_fields))
+
+    def _cr_should_delay_credit_note_xml(self):
+        """Credit notes must wait for references before generating XML."""
+        self.ensure_one()
+        return self._cr_is_credit_note_order() and not self._cr_has_complete_refund_reference_data()
+
     def action_cr_send_hacienda(self):
         for order in self:
             if order.invoice_status == "invoiced":
@@ -806,6 +821,19 @@ class PosOrder(models.Model):
                     }
                 )
             except UserError as error:
+                if order._cr_should_delay_credit_note_xml():
+                    order.write(
+                        {
+                            "cr_fe_status": "error_retry",
+                            "cr_fe_error_code": "reference_pending",
+                            "cr_fe_last_error": _(
+                                "La nota de crédito se enviará cuando exista la referencia "
+                                "(tipo, número y fecha del documento original)."
+                            ),
+                            "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5),
+                        }
+                    )
+                    continue
                 order.write(
                     {
                         "cr_fe_status": "error",
@@ -866,6 +894,13 @@ class PosOrder(models.Model):
             return False
 
         self._cr_validate_before_send()
+        if self._cr_should_delay_credit_note_xml():
+            raise UserError(
+                _(
+                    "La nota electrónica requiere información de referencia. Complete "
+                    "Tipo de documento, Número y Fecha de emisión del documento de referencia."
+                )
+            )
 
         idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
         doc_type = self._cr_get_pos_document_type()
@@ -1249,6 +1284,19 @@ class PosOrder(models.Model):
             )
             return bool(result.get("ok"))
         except UserError as error:
+            if self._cr_should_delay_credit_note_xml():
+                self.write(
+                    {
+                        "cr_fe_status": "error_retry",
+                        "cr_fe_error_code": "reference_pending",
+                        "cr_fe_last_error": _(
+                            "La nota de crédito se enviará cuando exista la referencia "
+                            "(tipo, número y fecha del documento original)."
+                        ),
+                        "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5),
+                    }
+                )
+                return False
             self.write(
                 {
                     "cr_fe_status": "error",
@@ -1304,7 +1352,6 @@ class PosOrder(models.Model):
         domain = [
             ("state", "in", ["paid", "done", "invoiced"]),
             ("cr_fe_status", "in", ["pending", "error_retry"]),
-            ("cr_fe_xml_attachment_id", "!=", False),
             "|",
             ("cr_fe_next_try", "=", False),
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
