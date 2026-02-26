@@ -39,7 +39,7 @@ class PosPaymentMethod(models.Model):
     def _selection_fp_payment_method(self):
         field = self.env["account.move"]._fields.get("fp_payment_method")
         if field and field.selection:
-            selection = field.selection(self.env) if callable(field.selection) else field.selection
+            selection = field.selection(self.env["account.move"]) if callable(field.selection) else field.selection
             if selection:
                 return selection
         return DEFAULT_CR_FE_PAYMENT_METHODS
@@ -47,7 +47,7 @@ class PosPaymentMethod(models.Model):
     def _selection_fp_sale_condition(self):
         field = self.env["account.move"]._fields.get("fp_sale_condition")
         if field and field.selection:
-            selection = field.selection(self.env) if callable(field.selection) else field.selection
+            selection = field.selection(self.env["account.move"]) if callable(field.selection) else field.selection
             if selection:
                 return selection
         return DEFAULT_CR_FE_PAYMENT_CONDITIONS
