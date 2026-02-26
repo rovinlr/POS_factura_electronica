@@ -510,12 +510,12 @@ class PosOrder(models.Model):
 
         enriched = []
         for item in result:
-            if not isinstance(item, dict):
-                enriched.append(item)
-                continue
-            order_id = item.get("id")
+            order_id = item.get("id") if isinstance(item, dict) else item
             payload = order_data.get(order_id, {})
-            enriched.append({**item, **payload})
+            if isinstance(item, dict):
+                enriched.append({**item, **payload})
+            else:
+                enriched.append(payload or {"id": order_id})
         return enriched
 
     def _process_order(self, order, draft, existing_order=False, **kwargs):
