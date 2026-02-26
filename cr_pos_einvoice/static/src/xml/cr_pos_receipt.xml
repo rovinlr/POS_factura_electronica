@@ -63,11 +63,8 @@
 
                 <div class="cr-divider"/>
 
-            <div class="cr-fe-extra">
-                <div class="cr-divider"></div>
-
-            <div class="cr-fe-extra">
-                <div class="cr-divider"/>
+                <div class="cr-fe-extra">
+                    <div class="cr-divider"/>
 
                 <div class="cr-center cr-doc-type">
                     <t t-set="dtype" t-value="einvoice.document_type || ''"/>
@@ -104,9 +101,10 @@
                     <t t-else="">Pendiente</t>
                 </div>
 
-                <div class="cr-divider"/>
-                <div class="cr-center cr-small">
-                    <t t-esc="(data.date &amp;&amp; data.date.localestring) || (data.date &amp;&amp; data.date) || ''"/>
+                    <div class="cr-divider"/>
+                    <div class="cr-center cr-small">
+                        <t t-esc="(data.date &amp;&amp; data.date.localestring) || (data.date &amp;&amp; data.date) || ''"/>
+                    </div>
                 </div>
             </div>
         </xpath>
