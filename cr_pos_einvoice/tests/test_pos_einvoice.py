@@ -203,6 +203,16 @@ class TestPosEInvoice(TransactionCase):
                 self.assertEqual(values.get(field_name), "Devolución de mercadería")
 
 
+    def test_get_origin_invoice_for_refund_uses_origin_ticket_move_when_not_invoiced(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        ticket_move = self.env["account.move"].new({"move_type": "out_invoice"})
+        origin_order.cr_ticket_move_id = ticket_move
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order):
+            origin_invoice = order._cr_get_origin_invoice_for_refund()
+
+        self.assertEqual(origin_invoice, ticket_move)
 
     def test_get_refund_reference_data_detects_nc_by_refunded_lines(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
