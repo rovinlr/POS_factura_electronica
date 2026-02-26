@@ -481,7 +481,42 @@ class PosOrder(models.Model):
             return result
         records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
         records._cr_process_after_payment()
-        return result
+        return self._cr_attach_fe_fields_to_ui_result(result)
+
+    @api.model
+    def _cr_attach_fe_fields_to_ui_result(self, result):
+        """Attach FE fields to create_from_ui response for immediate POS printing."""
+
+        order_ids = [item.get("id") if isinstance(item, dict) else item for item in (result or [])]
+        order_ids = [order_id for order_id in order_ids if order_id]
+        if not order_ids:
+            return result
+
+        fields_to_read = [
+            "id",
+            "cr_fe_document_type",
+            "cr_fe_consecutivo",
+            "cr_fe_clave",
+            "cr_fe_status",
+            "fp_payment_method",
+        ]
+        order_data = {
+            row["id"]: row
+            for row in self.browse(order_ids)
+            .exists()
+            .with_context(prefetch_fields=False)
+            .read(fields_to_read)
+        }
+
+        enriched = []
+        for item in result:
+            if not isinstance(item, dict):
+                enriched.append(item)
+                continue
+            order_id = item.get("id")
+            payload = order_data.get(order_id, {})
+            enriched.append({**item, **payload})
+        return enriched
 
     def _process_order(self, order, draft, existing_order=False, **kwargs):
         try:
