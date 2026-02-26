@@ -539,17 +539,36 @@ class PosOrder(models.Model):
             or (origin_invoice.invoice_date if origin_invoice else False)
             or fields.Date.context_today(self)
         )
+        reference_code = (
+            (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
+            or "01"
+        )
+        reference_reason = (
+            (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
+            or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
+            or _("Devolución de mercadería")
+        )
         values = {}
 
         for field_name in (
             "fp_reference_document_type",
-            "fp_reference_document_code",
             "fp_reference_doc_type",
             "reference_document_type",
             "l10n_cr_reference_document_type",
         ):
             if field_name in move_fields:
                 values[field_name] = reference_doc_type
+
+        for field_name in (
+            "fp_reference_document_code",
+            "fp_reference_code",
+            "reference_document_code",
+            "reference_code",
+            "l10n_cr_reference_code",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_code
 
         for field_name in (
             "fp_reference_document_number",
@@ -573,6 +592,14 @@ class PosOrder(models.Model):
         ):
             if field_name in move_fields:
                 values[field_name] = reference_date
+
+        for field_name in (
+            "fp_reference_reason",
+            "reference_reason",
+            "l10n_cr_reference_reason",
+        ):
+            if field_name in move_fields:
+                values[field_name] = reference_reason
 
         return values
 
