@@ -24,24 +24,24 @@
             "/>
 
             <t t-set="subtotal" t-value="
-                data.subtotal ||
-                data.total_without_tax ||
-                data.amount_untaxed ||
-                ((currentOrder &amp;&amp; currentOrder.get_total_without_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_without_tax())) || '')
+                (data.subtotal !== undefined &amp;&amp; data.subtotal !== null) ? data.subtotal :
+                ((data.total_without_tax !== undefined &amp;&amp; data.total_without_tax !== null) ? data.total_without_tax :
+                ((data.amount_untaxed !== undefined &amp;&amp; data.amount_untaxed !== null) ? data.amount_untaxed :
+                ((currentOrder &amp;&amp; currentOrder.get_total_without_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_without_tax())) || '')))
             "/>
 
             <t t-set="tax" t-value="
-                data.tax ||
-                data.total_tax ||
-                data.amount_tax ||
-                ((currentOrder &amp;&amp; currentOrder.get_total_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_tax())) || '')
+                (data.tax !== undefined &amp;&amp; data.tax !== null) ? data.tax :
+                ((data.total_tax !== undefined &amp;&amp; data.total_tax !== null) ? data.total_tax :
+                ((data.amount_tax !== undefined &amp;&amp; data.amount_tax !== null) ? data.amount_tax :
+                ((currentOrder &amp;&amp; currentOrder.get_total_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_tax())) || '')))
             "/>
 
             <t t-set="totalWithTax" t-value="
-                data.total_with_tax ||
-                data.total ||
-                data.amount_total ||
-                ((currentOrder &amp;&amp; currentOrder.get_total_with_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_with_tax())) || '')
+                (data.total_with_tax !== undefined &amp;&amp; data.total_with_tax !== null) ? data.total_with_tax :
+                ((data.total !== undefined &amp;&amp; data.total !== null) ? data.total :
+                ((data.amount_total !== undefined &amp;&amp; data.amount_total !== null) ? data.amount_total :
+                ((currentOrder &amp;&amp; currentOrder.get_total_with_tax &amp;&amp; env.utils.formatCurrency(currentOrder.get_total_with_tax())) || '')))
             "/>
 
             <div class="pos-receipt cr-fe-receipt">
@@ -160,11 +160,11 @@
                 <!-- Payment methods -->
                 <div class="cr-block">
                     <div class="cr-title">Medio de pago</div>
-                    <t t-if="paymentlines.length">
+                    <t t-if="paymentlines &amp;&amp; paymentlines.length">
                         <t t-foreach="paymentlines" t-as="pl" t-key="pl.cid || pl.id || pl.name || pl.amount">
                             <div class="cr-row">
                                 <div><t t-esc="pl.name || pl.payment_method || (pl.payment_method_id &amp;&amp; pl.payment_method_id.name) || ''"/></div>
-                                <div class="cr-right"><t t-esc="pl.amount || pl.amount_formatted || (pl.get_amount &amp;&amp; env.utils.formatCurrency(pl.get_amount())) || ''"/></div>
+                                <div class="cr-right"><t t-esc="(pl.amount !== undefined &amp;&amp; pl.amount !== null) ? pl.amount : (pl.amount_formatted || (pl.get_amount &amp;&amp; env.utils.formatCurrency(pl.get_amount())) || '')"/></div>
                             </div>
                         </t>
                     </t>

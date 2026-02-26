@@ -33,6 +33,8 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
         return;
     }
 
+    const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+
     /**
      * Why: Make FE fields + tax amount per line available to the receipt.
      */
@@ -62,9 +64,9 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
             // Normalize common keys used by different POS versions.
             receipt.orderlines = receipt.orderlines || receipt.order_lines || receipt.lines || [];
             receipt.paymentlines = receipt.paymentlines || receipt.payment_lines || [];
-            receipt.subtotal = receipt.subtotal || receipt.total_without_tax || receipt.amount_untaxed || "";
-            receipt.tax = receipt.tax || receipt.total_tax || receipt.amount_tax || "";
-            receipt.total_with_tax = receipt.total_with_tax || receipt.total || receipt.amount_total || "";
+            receipt.subtotal = firstDefined(receipt.subtotal, receipt.total_without_tax, receipt.amount_untaxed, "");
+            receipt.tax = firstDefined(receipt.tax, receipt.total_tax, receipt.amount_tax, "");
+            receipt.total_with_tax = firstDefined(receipt.total_with_tax, receipt.total, receipt.amount_total, "");
 
             // Per-line tax amount (numeric). Template will format.
             const orderlines = this.getOrderlines
@@ -82,6 +84,13 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
                     const taxAmount = prices && typeof prices.tax === "number" ? prices.tax : 0;
                     return { ...line, tax_amount: taxAmount };
                 });
+            }
+
+            if (Array.isArray(receipt.paymentlines)) {
+                receipt.paymentlines = receipt.paymentlines.map((paymentLine) => ({
+                    ...paymentLine,
+                    amount: firstDefined(paymentLine.amount, paymentLine.amount_formatted, ""),
+                }));
             }
 
             receipt.einvoice = {
