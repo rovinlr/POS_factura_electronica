@@ -1,14 +1,14 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { Order } from "@point_of_sale/app/store/models";
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 
 /**
  * Why: Make FE fields + tax amount per line available to the receipt.
  */
-patch(Order.prototype, {
+patch(PosOrder.prototype, {
     export_as_JSON() {
-        const json = super.export_as_JSON(...arguments);
+        const json = super.export_as_JSON ? super.export_as_JSON(...arguments) : {};
         json.cr_fe_document_type = this.cr_fe_document_type || null;
         json.cr_fe_consecutivo = this.cr_fe_consecutivo || null;
         json.cr_fe_clave = this.cr_fe_clave || null;
@@ -17,7 +17,9 @@ patch(Order.prototype, {
         return json;
     },
     init_from_JSON(json) {
-        super.init_from_JSON(...arguments);
+        if (super.init_from_JSON) {
+            super.init_from_JSON(...arguments);
+        }
         this.cr_fe_document_type = json.cr_fe_document_type || null;
         this.cr_fe_consecutivo = json.cr_fe_consecutivo || null;
         this.cr_fe_clave = json.cr_fe_clave || null;
@@ -25,10 +27,14 @@ patch(Order.prototype, {
         this.fp_payment_method = json.fp_payment_method || null;
     },
     export_for_printing() {
-        const receipt = super.export_for_printing(...arguments);
+        const receipt = super.export_for_printing ? super.export_for_printing(...arguments) : {};
 
         // Per-line tax amount (numeric). Template will format.
-        const orderlines = this.get_orderlines ? this.get_orderlines() : [];
+        const orderlines = this.getOrderlines
+            ? this.getOrderlines()
+            : this.get_orderlines
+              ? this.get_orderlines()
+              : this.lines || [];
         if (Array.isArray(receipt.orderlines)) {
             receipt.orderlines = receipt.orderlines.map((line, idx) => {
                 const ol = orderlines[idx];
@@ -47,7 +53,10 @@ patch(Order.prototype, {
             clave: this.cr_fe_clave || null,
             status: this.cr_fe_status || null,
             payment_method: this.fp_payment_method || null,
-            receptor_id: (this.get_partner && this.get_partner() && (this.get_partner().vat || null)) || null,
+            receptor_id:
+                (this.getPartner && this.getPartner() && (this.getPartner().vat || null)) ||
+                (this.get_partner && this.get_partner() && (this.get_partner().vat || null)) ||
+                null,
         };
         return receipt;
     },
