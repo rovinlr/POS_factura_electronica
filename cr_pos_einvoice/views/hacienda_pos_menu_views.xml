@@ -96,7 +96,7 @@
     <menuitem
         id="menu_cr_hacienda_comprobantes_pos"
         name="Comprobantes POS"
-        parent="point_of_sale.menu_point_config"
+        parent="point_of_sale.menu_point_config_product"
         action="action_cr_hacienda_comprobantes_pos"
         sequence="80"
     />
