@@ -722,6 +722,26 @@ class PosOrder(models.Model):
         origin_order = self._cr_get_origin_order_for_refund()
         origin_invoice = self._cr_get_origin_invoice_for_refund()
 
+        # Hacienda validates NC references against the original emitted document.
+        # Do not build/send XML until the source document has a stable key + date.
+        if origin_order:
+            reference_number = origin_order.cr_fe_clave or False
+            reference_date = origin_order.date_order.date() if origin_order.date_order else False
+        else:
+            reference_number = False
+            reference_date = False
+
+        if not reference_number and origin_invoice:
+            reference_number = (
+                getattr(origin_invoice, "l10n_cr_clave", False)
+                or getattr(origin_invoice, "l10n_cr_numero_consecutivo", False)
+            )
+        if not reference_date and origin_invoice:
+            reference_date = origin_invoice.invoice_date or False
+
+        if not reference_number or not reference_date:
+            return {}
+
         origin_doc_type = (origin_order.cr_fe_document_type if origin_order else False) or (
             "fe" if origin_invoice else False
         )
@@ -730,24 +750,6 @@ class PosOrder(models.Model):
             "te": "04",  # Tiquete Electrónico
             "nc": "03",  # Nota de Crédito
         }.get(origin_doc_type, "01")
-
-        reference_number = (
-            (origin_order.cr_fe_clave if origin_order else False)
-            or (origin_order.cr_fe_consecutivo if origin_order else False)
-            or (getattr(origin_invoice, "l10n_cr_clave", False) if origin_invoice else False)
-            or (getattr(origin_invoice, "l10n_cr_numero_consecutivo", False) if origin_invoice else False)
-            or (origin_invoice.name if origin_invoice else False)
-            or (getattr(origin_invoice, "payment_reference", False) if origin_invoice else False)
-            or (getattr(origin_invoice, "ref", False) if origin_invoice else False)
-        )
-        if not reference_number:
-            return {}
-
-        reference_date = (
-            (origin_order.date_order.date() if origin_order and origin_order.date_order else False)
-            or (origin_invoice.invoice_date if origin_invoice else False)
-            or fields.Date.context_today(self)
-        )
         reference_code = (
             (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
             or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
