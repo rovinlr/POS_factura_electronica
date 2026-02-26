@@ -1,0 +1,64 @@
+/** @odoo-module */
+
+import { patch } from "@web/core/utils/patch";
+import { PosStore } from "@point_of_sale/app/services/pos_store";
+
+const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+
+
+const isSameOrder = (order, row) => {
+    const orderServerId = firstDefined(order.server_id, order.backendId, order.id);
+    const rowServerId = firstDefined(row.id, row.server_id, row.backendId);
+    const orderReference = firstDefined(
+        order.name,
+        order.pos_reference,
+        order.uid,
+        order.uuid,
+        order.reference
+    );
+    const rowReference = firstDefined(row.pos_reference, row.name, row.uid, row.reference);
+
+    if (orderServerId && rowServerId) {
+        return Number(orderServerId) === Number(rowServerId);
+    }
+    if (orderReference && rowReference) {
+        return String(orderReference) === String(rowReference);
+    }
+    return false;
+};
+
+const applyFeFields = (order, row) => {
+    const values = {
+        cr_fe_document_type: firstDefined(row.cr_fe_document_type, order.cr_fe_document_type),
+        cr_fe_consecutivo: firstDefined(row.cr_fe_consecutivo, order.cr_fe_consecutivo),
+        cr_fe_clave: firstDefined(row.cr_fe_clave, order.cr_fe_clave),
+        cr_fe_status: firstDefined(row.cr_fe_status, order.cr_fe_status),
+        fp_payment_method: firstDefined(row.fp_payment_method, order.fp_payment_method),
+    };
+
+    Object.assign(order, values);
+};
+
+patch(PosStore.prototype, {
+    async postSyncAllOrders() {
+        if (super.postSyncAllOrders) {
+            await super.postSyncAllOrders(...arguments);
+        }
+
+        const rows = arguments[0];
+        if (!Array.isArray(rows) || !rows.length) {
+            return;
+        }
+        const orders = this.models?.["pos.order"]?.getAll?.() || [];
+        if (!orders.length) {
+            return;
+        }
+
+        for (const row of rows) {
+            const targetOrders = orders.filter((order) => isSameOrder(order, row));
+            for (const order of targetOrders) {
+                applyFeFields(order, row);
+            }
+        }
+    },
+});
