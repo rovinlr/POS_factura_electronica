@@ -34,6 +34,52 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
     }
 
     const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+    const normalizeText = (value) => {
+        if (value === undefined || value === null) {
+            return null;
+        }
+        const text = String(value).trim();
+        return text || null;
+    };
+
+    const pickPartner = (order) =>
+        firstDefined(
+            order.getPartner && order.getPartner(),
+            order.get_partner && order.get_partner(),
+            order.partner,
+            order.partner_id
+        ) || null;
+
+    const buildCompanyData = (order, receipt) => {
+        const company =
+            firstDefined(
+                receipt.company,
+                receipt.headerData && receipt.headerData.company,
+                receipt.headerData,
+                order.pos && order.pos.company,
+                order.company,
+                order.company_id
+            ) || {};
+
+        return {
+            ...company,
+            name: normalizeText(firstDefined(company.name, company.company_name, company.display_name)),
+            vat: normalizeText(firstDefined(company.vat, company.company_registry, company.identification_id)),
+            phone: normalizeText(firstDefined(company.phone, company.mobile)),
+            email: normalizeText(company.email),
+        };
+    };
+
+    const buildPartnerData = (order, receipt) => {
+        const partner = firstDefined(receipt.partner, receipt.client, pickPartner(order)) || {};
+        return {
+            ...partner,
+            name: normalizeText(firstDefined(partner.name, partner.display_name)),
+            vat: normalizeText(firstDefined(partner.vat, partner.identification_id)),
+            email: normalizeText(partner.email),
+            phone: normalizeText(firstDefined(partner.phone, partner.mobile)),
+        };
+    };
 
     /**
      * Why: Make FE fields + tax amount per line available to the receipt.
@@ -60,6 +106,8 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
         },
         export_for_printing() {
             const receipt = super.export_for_printing ? super.export_for_printing(...arguments) : {};
+            const partner = buildPartnerData(this, receipt);
+            const company = buildCompanyData(this, receipt);
 
             // Normalize common keys used by different POS versions.
             receipt.orderlines = receipt.orderlines || receipt.order_lines || receipt.lines || [];
@@ -67,6 +115,8 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
             receipt.subtotal = firstDefined(receipt.subtotal, receipt.total_without_tax, receipt.amount_untaxed, "");
             receipt.tax = firstDefined(receipt.tax, receipt.total_tax, receipt.amount_tax, "");
             receipt.total_with_tax = firstDefined(receipt.total_with_tax, receipt.total, receipt.amount_total, "");
+            receipt.company = company;
+            receipt.partner = partner;
 
             // Per-line tax amount (numeric). Template will format.
             const orderlines = this.getOrderlines
@@ -100,9 +150,14 @@ odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
                 status: this.cr_fe_status || null,
                 payment_method: this.fp_payment_method || null,
                 receptor_id:
-                    (this.getPartner && this.getPartner() && (this.getPartner().vat || null)) ||
-                    (this.get_partner && this.get_partner() && (this.get_partner().vat || null)) ||
-                    null,
+                    normalizeText(
+                        firstDefined(
+                            receipt.einvoice && receipt.einvoice.receptor_id,
+                            partner.vat,
+                            this.getPartner && this.getPartner() && this.getPartner().vat,
+                            this.get_partner && this.get_partner() && this.get_partner().vat
+                        )
+                    ) || null,
             };
             return receipt;
         },

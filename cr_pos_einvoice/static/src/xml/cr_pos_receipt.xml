@@ -94,6 +94,12 @@
                     <t t-if="einvoice.receptor_id">
                         <div class="cr-small">Identificación <t t-esc="einvoice.receptor_id"/></div>
                     </t>
+                    <t t-if="partner.phone">
+                        <div class="cr-small">Teléfono <t t-esc="partner.phone"/></div>
+                    </t>
+                    <t t-if="partner.email">
+                        <div class="cr-small">Correo: <t t-esc="partner.email"/></div>
+                    </t>
                 </div>
 
                 <div class="cr-divider"/>
