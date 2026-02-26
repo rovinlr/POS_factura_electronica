@@ -1,6 +1,4 @@
-/** @odoo-module **/
-
-odoo.define("cr_pos_einvoice.receipt_einvoice_patch", function (require) {
+odoo.define("cr_pos_einvoice.receipt_einvoice_patch", [], function (require) {
     "use strict";
 
     const { patch } = require("@web/core/utils/patch");
