@@ -1,11 +1,10 @@
-
 /* CR POS FE receipt layout.
    Why: keeps spacing readable in narrow thermal printers. */
-.cr-fe-receipt { font-size: 12px; }
+.cr-fe-receipt { font-size: 12px; line-height: 1.25; }
 .cr-center { text-align: center; }
 .cr-right { text-align: right; }
 .cr-header { padding: 4px 0; }
-.cr-company-name { font-weight: 700; font-size: 14px; }
+.cr-company-name { font-weight: 700; font-size: 14px; word-break: break-word; }
 .cr-doc-type { font-weight: 700; font-size: 13px; text-transform: uppercase; }
 .cr-small { font-size: 11px; opacity: 0.95; }
 .cr-strong { font-weight: 700; }
@@ -14,15 +13,15 @@
 .cr-block { padding: 2px 0; }
 
 .cr-lines { width: 100%; }
-.cr-line { display: flex; gap: 6px; padding: 2px 0; }
+.cr-line { display: flex; gap: 4px; padding: 2px 0; align-items: flex-start; }
 .cr-line-head { font-weight: 700; border-bottom: 1px solid #000; padding-bottom: 4px; margin-bottom: 4px; }
-.cr-col-qty { width: 10%; }
-.cr-col-prod { width: 46%; }
-.cr-col-price { width: 14%; text-align: right; }
-.cr-col-tax { width: 12%; text-align: right; }
-.cr-col-total { width: 18%; text-align: right; }
+.cr-col-qty { width: 12%; }
+.cr-col-prod { width: 42%; word-break: break-word; overflow-wrap: anywhere; }
+.cr-col-price { width: 16%; text-align: right; white-space: nowrap; }
+.cr-col-tax { width: 12%; text-align: right; white-space: nowrap; }
+.cr-col-total { width: 18%; text-align: right; white-space: nowrap; }
 
-.cr-totals .cr-row { display: flex; justify-content: space-between; padding: 1px 0; }
+.cr-totals .cr-row { display: flex; justify-content: space-between; padding: 1px 0; gap: 4px; }
 
-.cr-mono { font-family: monospace; font-size: 10.5px; }
-.cr-wrap { word-break: break-all; }
+.cr-mono { font-family: monospace; font-size: 10px; letter-spacing: 0.1px; }
+.cr-wrap { word-break: break-all; overflow-wrap: anywhere; }
