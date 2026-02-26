@@ -644,7 +644,7 @@ class PosOrder(models.Model):
         }.get((document_type or order.cr_fe_document_type or order._cr_get_pos_document_type() or "").lower(), "DOC")
         attachment = order.env["ir.attachment"].create(
             {
-                "name": f"{doc_prefix}-{clave}-firmado.xml",
+                "name": f"{doc_prefix}-{consecutivo}-firmado.xml",
                 "type": "binary",
                 "datas": base64.b64encode(xml_bytes),
                 "res_model": "pos.order",
@@ -717,7 +717,11 @@ class PosOrder(models.Model):
             params={"emisor": "".join(ch for ch in (order.company_id.vat or "") if ch.isdigit())},
         )
 
-        response_attachment_id = order._cr_store_hacienda_response_attachment(response_data, clave=order.cr_fe_clave)
+        response_attachment_id = order._cr_store_hacienda_response_attachment(
+            response_data,
+            clave=order.cr_fe_clave,
+            consecutivo=order.cr_fe_consecutivo,
+        )
 
         status = (response_data.get("ind-estado") or "").lower()
         normalized = order._cr_normalize_hacienda_status(status, default_status=False)
@@ -816,7 +820,7 @@ class PosOrder(models.Model):
         move._compute_amount()
         return move
 
-    def _cr_store_hacienda_response_attachment(self, response_data, *, clave):
+    def _cr_store_hacienda_response_attachment(self, response_data, *, clave, consecutivo=None):
         self.ensure_one()
         xml_keys = ["respuesta-xml", "respuestaXml", "xmlRespuesta", "xml"]
         xml_payload = next((response_data.get(key) for key in xml_keys if response_data.get(key)), None)
@@ -836,9 +840,10 @@ class PosOrder(models.Model):
             "fe": "FE",
             "nc": "NC",
         }.get((self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower(), "DOC")
+        file_consecutivo = consecutivo or self.cr_fe_consecutivo or clave
         attachment = self.env["ir.attachment"].create(
             {
-                "name": f"{doc_prefix}-{clave}-respuesta-hacienda.xml",
+                "name": f"{doc_prefix}-{file_consecutivo}-respuesta-hacienda.xml",
                 "type": "binary",
                 "datas": base64.b64encode(xml_text.encode("utf-8")),
                 "res_model": "pos.order",
