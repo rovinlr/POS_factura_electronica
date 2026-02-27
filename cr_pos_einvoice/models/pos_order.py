@@ -153,15 +153,20 @@ class PosOrder(models.Model):
                     pass
             raise error
 
-    def _cr_call_service_method(self, method_names, *args, **kwargs):
+    def _cr_call_service_method(self, method_names, *args, prefer_local=False, **kwargs):
         """Call first available FE backend method from service or pos.order."""
         self.ensure_one()
         tried_backends = []
         backends = []
         service = self._cr_service()
-        if service:
-            backends.append(("l10n_cr.einvoice.service", service))
-        backends.append(("pos.order", self))
+        if prefer_local:
+            backends.append(("pos.order", self))
+            if service:
+                backends.append(("l10n_cr.einvoice.service", service))
+        else:
+            if service:
+                backends.append(("l10n_cr.einvoice.service", service))
+            backends.append(("pos.order", self))
 
         for backend_name, backend in backends:
             tried_backends.append(backend_name)
@@ -1076,6 +1081,7 @@ class PosOrder(models.Model):
             idempotency_key=idempotency_key,
             clave=clave,
             document_type=doc_type,
+            prefer_local=doc_type == "nc",
             payload=payload,
         )
 
@@ -1159,13 +1165,22 @@ class PosOrder(models.Model):
             "reference_document_type": reference_data.get("document_type"),
             "reference_document_number": reference_data.get("number"),
             "reference_issue_date": reference_issue_date,
+            "reference_document_date": reference_issue_date,
+            "reference_date": reference_issue_date,
             "reference_code": reference_data.get("code"),
             "reference_reason": reference_data.get("reason"),
             "fp_reference_document_type": reference_data.get("document_type"),
             "fp_reference_document_number": reference_data.get("number"),
             "fp_reference_issue_date": reference_issue_date,
+            "fp_reference_document_date": reference_issue_date,
+            "fp_reference_date": reference_issue_date,
             "fp_reference_code": reference_data.get("code"),
             "fp_reference_reason": reference_data.get("reason"),
+            "l10n_cr_reference_document_type": reference_data.get("document_type"),
+            "l10n_cr_reference_document_number": reference_data.get("number"),
+            "l10n_cr_reference_issue_date": reference_issue_date,
+            "l10n_cr_reference_code": reference_data.get("code"),
+            "l10n_cr_reference_reason": reference_data.get("reason"),
             "lines": lines,
         }
 
@@ -1531,6 +1546,7 @@ class PosOrder(models.Model):
                 document_type=self.cr_fe_document_type or self._cr_get_pos_document_type(),
                 idempotency_key=self.cr_fe_idempotency_key,
                 company_id=self.company_id.id,
+                prefer_local=(self.cr_fe_document_type or self._cr_get_pos_document_type()) == "nc",
             )
             normalized_status = self._cr_normalize_hacienda_status((result or {}).get("status"), default_status=True)
             self.write(
@@ -1592,6 +1608,7 @@ class PosOrder(models.Model):
                 ["consult_status", "check_status_from_pos_order", "check_status", "get_pos_order_status"],
                 self.id,
                 idempotency_key=self.cr_fe_idempotency_key,
+                prefer_local=(self.cr_fe_document_type or self._cr_get_pos_document_type()) == "nc",
             )
         except UserError:
             self._cr_call_status_backend()
