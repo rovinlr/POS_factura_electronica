@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_order_form_cr_einvoice" model="ir.ui.view">
+        <field name="name">pos.order.form.cr.einvoice</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button
+                    name="action_cr_send_hacienda"
+                    type="object"
+                    string="Enviar a Hacienda"
+                    class="btn-primary"
+                    invisible="state not in ['paid', 'done', 'invoiced'] or cr_fe_status in ['accepted', 'rejected', 'not_applicable']"
+                />
+                <button
+                    name="action_cr_check_hacienda_status"
+                    type="object"
+                    string="Consultar estado Hacienda"
+                    invisible="cr_fe_status not in ['sent', 'processing', 'pending', 'error_retry']"
+                />
+                <button name="action_cr_open_fe_document" type="object" string="Abrir comprobante electrónico"/>
+            </xpath>
+            <xpath expr="//notebook" position="inside">
+                <page string="Documentos Electrónicos">
+                    <group>
+                        <group>
+                            <field name="cr_fe_document_type" readonly="1"/>
+                            <field name="cr_fe_clave" readonly="1"/>
+                            <field name="cr_fe_consecutivo" readonly="1"/>
+                            <field name="cr_fe_status" readonly="1"/>
+                            <field name="account_move" readonly="1"/>
+                            <field name="cr_ticket_move_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="cr_fe_idempotency_key" readonly="1"/>
+                            <field name="cr_fe_last_send_date" readonly="1"/>
+                            <field name="cr_fe_retry_count" readonly="1"/>
+                            <field name="cr_fe_error_code" readonly="1"/>
+                            <field name="cr_fe_last_error" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Referencia NC" invisible="cr_fe_document_type != 'nc'">
+                        <group>
+                            <field name="cr_fe_reference_document_type" readonly="1"/>
+                            <field name="cr_fe_reference_document_number" readonly="1"/>
+                            <field name="cr_fe_reference_issue_date" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="cr_fe_reference_code" readonly="1"/>
+                            <field name="cr_fe_reference_reason" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Adjuntos XML">
+                        <field name="cr_fe_xml_attachment_id" readonly="1"/>
+                        <field name="cr_fe_response_attachment_id" readonly="1"/>
+                        <field name="cr_fe_attachment_ids" readonly="1" widget="many2many_binary"/>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
