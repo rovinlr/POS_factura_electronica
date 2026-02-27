@@ -3,6 +3,7 @@ import base64
 import hashlib
 from collections import defaultdict
 from datetime import timedelta
+from markupsafe import Markup, escape
 
 from psycopg2 import IntegrityError
 from psycopg2.errors import SerializationFailure
@@ -496,7 +497,10 @@ class PosOrder(models.Model):
 
     def _cr_post_fe_event(self, title, body=None, attachments=None):
         self.ensure_one()
-        values = {"body": f"<b>{title}</b>" + (f"<br/>{body}" if body else "")}
+        safe_title = escape(title or "")
+        safe_body = escape(body or "")
+        html_body = Markup("<b>{}</b>{}").format(safe_title, Markup("<br/>{}").format(safe_body) if body else Markup(""))
+        values = {"body": html_body}
         if attachments:
             values["attachment_ids"] = [(4, att.id) for att in attachments if att]
         try:
