@@ -491,82 +491,81 @@ class PosOrder(models.Model):
             "target": "current",
         }
 
-    
-def _cr_fe_status_label(self, status):
-    return dict(self._fields['cr_fe_status'].selection).get(status, status)
+    def _cr_fe_status_label(self, status):
+        return dict(self._fields["cr_fe_status"].selection).get(status, status)
 
-def _cr_post_fe_event(self, title, body=None, attachments=None):
-    self.ensure_one()
-    values = {"body": f"<b>{title}</b>" + (f"<br/>{body}" if body else "")}
-    if attachments:
-        values["attachment_ids"] = [(4, att.id) for att in attachments if att]
-    try:
-        self.message_post(**values)
-    except Exception:  # noqa: BLE001
-        # Do not block POS flow if chatter fails.
-        return False
-    return True
+    def _cr_post_fe_event(self, title, body=None, attachments=None):
+        self.ensure_one()
+        values = {"body": f"<b>{title}</b>" + (f"<br/>{body}" if body else "")}
+        if attachments:
+            values["attachment_ids"] = [(4, att.id) for att in attachments if att]
+        try:
+            self.message_post(**values)
+        except Exception:  # noqa: BLE001
+            # Do not block POS flow if chatter fails.
+            return False
+        return True
 
-def write(self, vals):
-    """Post FE milestones to chatter (generated/sent/accepted/rejected/error)."""
-    tracked_fields = {"cr_fe_status", "cr_fe_xml_attachment_id", "cr_fe_response_attachment_id"}
-    needs_track = bool(tracked_fields.intersection(vals))
-    old = {}
-    if needs_track:
-        for order in self:
-            old[order.id] = {
-                "status": order.cr_fe_status,
-                "xml": order.cr_fe_xml_attachment_id.id if order.cr_fe_xml_attachment_id else False,
-                "resp": order.cr_fe_response_attachment_id.id if order.cr_fe_response_attachment_id else False,
-            }
+    def write(self, vals):
+        """Post FE milestones to chatter (generated/sent/accepted/rejected/error)."""
+        tracked_fields = {"cr_fe_status", "cr_fe_xml_attachment_id", "cr_fe_response_attachment_id"}
+        needs_track = bool(tracked_fields.intersection(vals))
+        old = {}
+        if needs_track:
+            for order in self:
+                old[order.id] = {
+                    "status": order.cr_fe_status,
+                    "xml": order.cr_fe_xml_attachment_id.id if order.cr_fe_xml_attachment_id else False,
+                    "resp": order.cr_fe_response_attachment_id.id if order.cr_fe_response_attachment_id else False,
+                }
 
-    res = super().write(vals)
+        res = super().write(vals)
 
-    if needs_track:
-        for order in self:
-            prev = old.get(order.id, {})
-            if not prev:
-                continue
+        if needs_track:
+            for order in self:
+                prev = old.get(order.id, {})
+                if not prev:
+                    continue
 
-            # XML generated (first time linked)
-            new_xml = order.cr_fe_xml_attachment_id
-            if (not prev.get("xml")) and new_xml:
-                order._cr_post_fe_event(
-                    title=_("Documento FE generado"),
-                    body=_("Se generó el XML firmado (%s).") % (new_xml.name or ""),
-                    attachments=[new_xml],
-                )
+                # XML generated (first time linked)
+                new_xml = order.cr_fe_xml_attachment_id
+                if (not prev.get("xml")) and new_xml:
+                    order._cr_post_fe_event(
+                        title=_("Documento FE generado"),
+                        body=_("Se generó el XML firmado (%s).") % (new_xml.name or ""),
+                        attachments=[new_xml],
+                    )
 
-            # Status transitions
-            if "cr_fe_status" in vals and prev.get("status") != order.cr_fe_status:
-                label = order._cr_fe_status_label(order.cr_fe_status)
-                extra = ""
-                if order.cr_fe_status in ("sent", "processing"):
-                    extra = _("Documento enviado a Hacienda.")
-                elif order.cr_fe_status == "accepted":
-                    extra = _("Documento aceptado por Hacienda.")
-                elif order.cr_fe_status == "rejected":
-                    extra = _("Documento rechazado por Hacienda.")
-                elif order.cr_fe_status in ("error", "error_retry"):
-                    extra = order.cr_fe_last_error or ""
+                # Status transitions
+                if "cr_fe_status" in vals and prev.get("status") != order.cr_fe_status:
+                    label = order._cr_fe_status_label(order.cr_fe_status)
+                    extra = ""
+                    if order.cr_fe_status in ("sent", "processing"):
+                        extra = _("Documento enviado a Hacienda.")
+                    elif order.cr_fe_status == "accepted":
+                        extra = _("Documento aceptado por Hacienda.")
+                    elif order.cr_fe_status == "rejected":
+                        extra = _("Documento rechazado por Hacienda.")
+                    elif order.cr_fe_status in ("error", "error_retry"):
+                        extra = order.cr_fe_last_error or ""
 
-                order._cr_post_fe_event(
-                    title=_("Estado FE: %s") % label,
-                    body=extra,
-                    attachments=[order.cr_fe_response_attachment_id] if order.cr_fe_response_attachment_id else None,
-                )
+                    order._cr_post_fe_event(
+                        title=_("Estado FE: %s") % label,
+                        body=extra,
+                        attachments=[order.cr_fe_response_attachment_id] if order.cr_fe_response_attachment_id else None,
+                    )
 
-            # Response received (first time linked)
-            new_resp = order.cr_fe_response_attachment_id
-            if (not prev.get("resp")) and new_resp:
-                order._cr_post_fe_event(
-                    title=_("Respuesta Hacienda recibida"),
-                    body=_("Se almacenó la respuesta MH (%s).") % (new_resp.name or ""),
-                    attachments=[new_resp],
-                )
+                # Response received (first time linked)
+                new_resp = order.cr_fe_response_attachment_id
+                if (not prev.get("resp")) and new_resp:
+                    order._cr_post_fe_event(
+                        title=_("Respuesta Hacienda recibida"),
+                        body=_("Se almacenó la respuesta MH (%s).") % (new_resp.name or ""),
+                        attachments=[new_resp],
+                    )
 
-    return res
-@api.model
+        return res
+    @api.model
     def create_from_ui(self, orders, draft=False):
         result = super().create_from_ui(orders, draft=draft)
         if draft:
@@ -1373,60 +1372,60 @@ def write(self, vals):
         return move
 
     def _cr_store_hacienda_response_attachment(self, response_data, *, clave, consecutivo=None):
-    """Store Hacienda response XML as an attachment (idempotent)."""
-    self.ensure_one()
-    xml_keys = ["respuesta-xml", "respuestaXml", "xmlRespuesta", "xml"]
-    xml_payload = next((response_data.get(key) for key in xml_keys if response_data.get(key)), None)
-    if not xml_payload:
-        return False
+        """Store Hacienda response XML as an attachment (idempotent)."""
+        self.ensure_one()
+        xml_keys = ["respuesta-xml", "respuestaXml", "xmlRespuesta", "xml"]
+        xml_payload = next((response_data.get(key) for key in xml_keys if response_data.get(key)), None)
+        if not xml_payload:
+            return False
 
-    if str(xml_payload).lstrip().startswith("<"):
-        xml_text = xml_payload
-    else:
-        try:
-            xml_text = base64.b64decode(xml_payload).decode("utf-8")
-        except Exception:  # noqa: BLE001
-            xml_text = str(xml_payload)
+        if str(xml_payload).lstrip().startswith("<"):
+            xml_text = xml_payload
+        else:
+            try:
+                xml_text = base64.b64decode(xml_payload).decode("utf-8")
+            except Exception:  # noqa: BLE001
+                xml_text = str(xml_payload)
 
-    doc_prefix = {"te": "TE", "fe": "FE", "nc": "NC"}.get(
-        (self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower(), "DOC"
-    )
-    file_consecutivo = consecutivo or self.cr_fe_consecutivo or clave
-    expected_name = f"{doc_prefix}-{file_consecutivo}-respuesta-hacienda.xml"
-
-    if self.cr_fe_response_attachment_id and self.cr_fe_response_attachment_id.datas:
-        return self.cr_fe_response_attachment_id.id
-
-    existing = (
-        self.env["ir.attachment"]
-        .sudo()
-        .search(
-            [
-                ("res_model", "=", "pos.order"),
-                ("res_id", "=", self.id),
-                ("mimetype", "=", "application/xml"),
-                ("name", "=", expected_name),
-            ],
-            order="id desc",
-            limit=1,
+        doc_prefix = {"te": "TE", "fe": "FE", "nc": "NC"}.get(
+            (self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower(), "DOC"
         )
-    )
-    if existing and existing.datas:
-        self.cr_fe_response_attachment_id = existing.id
-        return existing.id
+        file_consecutivo = consecutivo or self.cr_fe_consecutivo or clave
+        expected_name = f"{doc_prefix}-{file_consecutivo}-respuesta-hacienda.xml"
 
-    attachment = self.env["ir.attachment"].create(
-        {
-            "name": expected_name,
-            "type": "binary",
-            "datas": base64.b64encode(xml_text.encode("utf-8")),
-            "res_model": "pos.order",
-            "res_id": self.id,
-            "mimetype": "application/xml",
-        }
-    )
-    self.cr_fe_response_attachment_id = attachment.id
-    return attachment.id
+        if self.cr_fe_response_attachment_id and self.cr_fe_response_attachment_id.datas:
+            return self.cr_fe_response_attachment_id.id
+
+        existing = (
+            self.env["ir.attachment"]
+            .sudo()
+            .search(
+                [
+                    ("res_model", "=", "pos.order"),
+                    ("res_id", "=", self.id),
+                    ("mimetype", "=", "application/xml"),
+                    ("name", "=", expected_name),
+                ],
+                order="id desc",
+                limit=1,
+            )
+        )
+        if existing and existing.datas:
+            self.cr_fe_response_attachment_id = existing.id
+            return existing.id
+
+        attachment = self.env["ir.attachment"].create(
+            {
+                "name": expected_name,
+                "type": "binary",
+                "datas": base64.b64encode(xml_text.encode("utf-8")),
+                "res_model": "pos.order",
+                "res_id": self.id,
+                "mimetype": "application/xml",
+            }
+        )
+        self.cr_fe_response_attachment_id = attachment.id
+        return attachment.id
 
     def _cr_send_pending_te_to_hacienda(self, force=False):
         self.ensure_one()
