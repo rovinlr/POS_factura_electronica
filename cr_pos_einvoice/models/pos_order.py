@@ -107,7 +107,7 @@ class PosOrder(models.Model):
         "La clave de idempotencia FE debe ser única por compañía.",
     )
 
-    @api.depends("account_move", "state", "amount_total")
+    @api.depends("account_move", "state", "amount_total", "lines.refunded_orderline_id")
     def _compute_cr_fe_document_type(self):
         for order in self:
             invoice = order._cr_get_real_invoice_move()
@@ -223,10 +223,10 @@ class PosOrder(models.Model):
                 return selection
         return [("01", "Efectivo")]
 
-    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id")
+    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id", "lines.refunded_orderline_id", "amount_total")
     def _compute_fp_pos_fe_fields(self):
         for order in self:
-            doc_type = "NC" if order.amount_total < 0 else ("FE" if order._cr_has_real_invoice_move() else "TE")
+            doc_type = "NC" if order._cr_is_refund_order_candidate() else ("FE" if order._cr_has_real_invoice_move() else "TE")
             method = order._cr_get_primary_payment_method() if order.payment_ids else self.env["pos.payment.method"]
             order.fp_document_type = doc_type
             order.fp_sale_condition = method.fp_sale_condition if method else False
