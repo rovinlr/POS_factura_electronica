@@ -237,6 +237,19 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(reference_data.get("document_type"), "04")
         self.assertEqual(reference_data.get("number"), origin_order.cr_fe_clave)
 
+    def test_get_pos_document_type_returns_nc_for_refund_lines_before_payment(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        order_line = self.env["pos.order.line"].new({"order_id": order.id})
+        refunded_line = self.env["pos.order.line"].new()
+        order_line.refunded_orderline_id = refunded_line
+        order.lines = [order_line]
+
+        self.assertEqual(order._cr_get_pos_document_type(), "nc")
+
+    def test_get_pos_document_type_returns_te_for_regular_positive_order(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        self.assertEqual(order._cr_get_pos_document_type(), "te")
+
     def test_get_refund_reference_data_skips_missing_optional_reference_fields(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
 
