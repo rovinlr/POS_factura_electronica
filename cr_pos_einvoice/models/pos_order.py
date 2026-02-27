@@ -107,12 +107,16 @@ class PosOrder(models.Model):
         "La clave de idempotencia FE debe ser única por compañía.",
     )
 
-    @api.depends("account_move", "state", "amount_total")
+    @api.depends("account_move", "state", "amount_total", "lines.refunded_orderline_id")
     def _compute_cr_fe_document_type(self):
         for order in self:
             invoice = order._cr_get_real_invoice_move()
             if invoice:
                 order.cr_fe_document_type = "nc" if invoice.move_type == "out_refund" else "fe"
+            elif order._cr_is_refund_order_candidate():
+                # Preconfigure NC as soon as a refund order exists (before payment)
+                # so FE references can be prepared deterministically.
+                order.cr_fe_document_type = "nc"
             elif order.state in ("paid", "done", "invoiced"):
                 order.cr_fe_document_type = order._cr_get_pos_document_type()
             else:
@@ -219,10 +223,10 @@ class PosOrder(models.Model):
                 return selection
         return [("01", "Efectivo")]
 
-    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id")
+    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id", "lines.refunded_orderline_id", "amount_total")
     def _compute_fp_pos_fe_fields(self):
         for order in self:
-            doc_type = "NC" if order.amount_total < 0 else ("FE" if order._cr_has_real_invoice_move() else "TE")
+            doc_type = "NC" if order._cr_is_refund_order_candidate() else ("FE" if order._cr_has_real_invoice_move() else "TE")
             method = order._cr_get_primary_payment_method() if order.payment_ids else self.env["pos.payment.method"]
             order.fp_document_type = doc_type
             order.fp_sale_condition = method.fp_sale_condition if method else False
@@ -302,7 +306,18 @@ class PosOrder(models.Model):
 
     def _cr_get_pos_document_type(self):
         self.ensure_one()
-        return "nc" if self.amount_total < 0 else "te"
+        return "nc" if self._cr_is_refund_order_candidate() else "te"
+
+    def _cr_is_refund_order_candidate(self):
+        """Detect refund orders reliably, even before they are paid."""
+        self.ensure_one()
+        if self.amount_total < 0:
+            return True
+        if self.lines.filtered("refunded_orderline_id"):
+            return True
+
+        move = self._cr_get_real_invoice_move()
+        return bool(move and move.move_type == "out_refund")
 
     def _cr_build_idempotency_key(self):
         self.ensure_one()
@@ -688,15 +703,11 @@ class PosOrder(models.Model):
     def _cr_is_credit_note_order(self):
         """Best-effort check to identify POS refunds that must behave as NC."""
         self.ensure_one()
-        if self.amount_total < 0:
+        if self._cr_is_refund_order_candidate():
             return True
         if self.cr_fe_document_type == "nc":
             return True
-        if self.lines.filtered("refunded_orderline_id"):
-            return True
-
-        move = self._cr_get_real_invoice_move()
-        return bool(move and move.move_type == "out_refund")
+        return False
 
     def _cr_build_refund_reference_values(self):
         """Populate FE reference fields when POS generates a credit note (NC)."""
