@@ -23,16 +23,21 @@ const normalizeNumericId = (value) => {
     return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 };
 
+const normalizeDocumentType = (value) => {
+    const text = normalizeReference(value);
+    return text ? text.toLowerCase() : null;
+};
+
 const getOrderServerId = (order, row) =>
     normalizeNumericId(
         firstDefined(
-        row?.id,
-        row?.server_id,
-        row?.backendId,
-        order?.server_id,
-        order?.backendId,
-        order?.id,
-        order?.get_server_id && order.get_server_id()
+            row?.id,
+            row?.server_id,
+            row?.backendId,
+            order?.server_id,
+            order?.backendId,
+            order?.id,
+            order?.get_server_id && order.get_server_id()
         )
     );
 
@@ -53,17 +58,23 @@ const getOrderReferences = (order, row) => {
     return [...new Set(values.map((value) => normalizeReference(value)).filter(Boolean))];
 };
 
+const extractSyncRows = (payload) => {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+    if (Array.isArray(payload?.orders)) {
+        return payload.orders;
+    }
+    if (Array.isArray(payload?.data)) {
+        return payload.data;
+    }
+    return [];
+};
 
 const isSameOrder = (order, row) => {
     const orderServerId = firstDefined(order.server_id, order.backendId, order.id);
     const rowServerId = firstDefined(row.id, row.server_id, row.backendId);
-    const orderReference = firstDefined(
-        order.name,
-        order.pos_reference,
-        order.uid,
-        order.uuid,
-        order.reference
-    );
+    const orderReference = firstDefined(order.name, order.pos_reference, order.uid, order.uuid, order.reference);
     const rowReference = firstDefined(row.pos_reference, row.name, row.uid, row.reference);
 
     if (orderServerId && rowServerId) {
@@ -77,10 +88,12 @@ const isSameOrder = (order, row) => {
 
 const applyFeFields = (order, row) => {
     const values = {
-        cr_fe_document_type: firstDefined(row.cr_fe_document_type, order.cr_fe_document_type),
-        cr_fe_consecutivo: firstDefined(row.cr_fe_consecutivo, order.cr_fe_consecutivo),
-        cr_fe_clave: firstDefined(row.cr_fe_clave, order.cr_fe_clave),
-        cr_fe_status: firstDefined(row.cr_fe_status, order.cr_fe_status),
+        cr_fe_document_type: normalizeDocumentType(
+            firstDefined(row.cr_fe_document_type, row.fp_document_type, order.cr_fe_document_type, order.fp_document_type)
+        ),
+        cr_fe_consecutivo: firstDefined(row.cr_fe_consecutivo, row.fp_consecutive_number, order.cr_fe_consecutivo),
+        cr_fe_clave: firstDefined(row.cr_fe_clave, row.fp_external_id, order.cr_fe_clave),
+        cr_fe_status: firstDefined(row.cr_fe_status, row.fp_api_state, row.fp_invoice_status, order.cr_fe_status),
         fp_payment_method: firstDefined(row.fp_payment_method, order.fp_payment_method),
     };
 
@@ -100,7 +113,7 @@ const isReceiptScreen = (screen) => {
 };
 
 const needsFeWait = (values) => {
-    const documentType = firstDefined(values?.cr_fe_document_type, values?.document_type);
+    const documentType = firstDefined(values?.cr_fe_document_type, values?.document_type, values?.fp_document_type);
     if (!documentType) {
         return false;
     }
@@ -154,10 +167,11 @@ patch(PosStore.prototype, {
         return false;
     },
 
-
     async showScreen(screen, props) {
         const activeOrder = this.get_order ? this.get_order() : this.selectedOrder;
-        const feEnabled = Boolean(firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled));
+        const feEnabled = Boolean(
+            firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled)
+        );
         if (isReceiptScreen(screen) && activeOrder && (needsFeWait(activeOrder) || (feEnabled && !hasRequiredFeData(activeOrder)))) {
             await this._crWaitForFeFields(activeOrder, activeOrder);
         }
@@ -172,8 +186,8 @@ patch(PosStore.prototype, {
             await super.postSyncAllOrders(...arguments);
         }
 
-        const rows = arguments[0];
-        if (!Array.isArray(rows) || !rows.length) {
+        const rows = extractSyncRows(arguments[0]);
+        if (!rows.length) {
             return;
         }
         const orders = this.models?.["pos.order"]?.getAll?.() || [];
