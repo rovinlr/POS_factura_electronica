@@ -250,7 +250,6 @@ class TestPosEInvoice(TransactionCase):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
         self.assertEqual(order._cr_get_pos_document_type(), "te")
 
-
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
         order_line = self.env["pos.order.line"].new({"order_id": order.id})
