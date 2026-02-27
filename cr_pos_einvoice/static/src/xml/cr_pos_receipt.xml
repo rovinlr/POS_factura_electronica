@@ -6,12 +6,26 @@
         <xpath expr="//div[hasclass('pos-receipt')]" position="inside">
             <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
             <t t-set="einvoice" t-value="(data &amp;&amp; data.einvoice) || {}"/>
+            <t t-set="partner" t-value="(data &amp;&amp; data.partner) || {}"/>
 
             <div class="cr-fe-extra">
                 <div class="cr-divider"/>
 
+                <t t-if="partner.name || partner.vat || partner.email || partner.phone || einvoice.receptor_id">
+                    <div class="cr-block cr-small">
+                        <div class="cr-title">Datos del receptor</div>
+                        <div t-if="partner.name"><strong>Nombre:</strong> <t t-esc="partner.name"/></div>
+                        <div t-if="partner.vat || einvoice.receptor_id">
+                            <strong>Identificación:</strong> <t t-esc="partner.vat || einvoice.receptor_id"/>
+                        </div>
+                        <div t-if="partner.email"><strong>Correo:</strong> <t t-esc="partner.email"/></div>
+                        <div t-if="partner.phone"><strong>Teléfono:</strong> <t t-esc="partner.phone"/></div>
+                    </div>
+                    <div class="cr-divider"/>
+                </t>
+
                 <div class="cr-center cr-doc-type">
-                    <t t-set="dtype" t-value="einvoice.document_type || ''"/>
+                    <t t-set="dtype" t-value="einvoice.document_type || data.cr_fe_document_type || ''"/>
                     <strong>Tipo de comprobante:</strong>
                     <t t-if="dtype == 'te'"> Tiquete electrónico</t>
                     <t t-elif="dtype == 'fe'"> Factura electrónica</t>
@@ -20,7 +34,7 @@
                     <t t-else=""> Comprobante</t>
                 </div>
 
-                <t t-set="consec" t-value="einvoice.consecutivo || ''"/>
+                <t t-set="consec" t-value="einvoice.consecutivo || data.cr_fe_consecutivo || ''"/>
                 <div class="cr-center cr-small">
                     <strong>Consecutivo:</strong>
                     <t t-if="consec"><t t-esc="consec"/></t>
@@ -29,8 +43,8 @@
 
                 <div class="cr-block">
                     <div class="cr-title">Clave</div>
-                    <t t-if="einvoice.clave">
-                        <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave"/></div>
+                    <t t-if="einvoice.clave || data.cr_fe_clave">
+                        <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave || data.cr_fe_clave"/></div>
                     </t>
                     <t t-else="">
                         <div class="cr-small">Pendiente</div>
