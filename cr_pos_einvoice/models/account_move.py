@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from odoo import _, api, fields, models
@@ -6,6 +7,8 @@ from odoo.exceptions import UserError
 
 class AccountMove(models.Model):
     _inherit = "account.move"
+
+    _logger = logging.getLogger(__name__)
 
     cr_pos_order_id = fields.Many2one("pos.order", string="Pedido POS FE", index=True, copy=False)
     cr_pos_document_type = fields.Selection(
@@ -175,17 +178,43 @@ class AccountMove(models.Model):
     @api.model
     def _fp_cron_send_pending_documents(self):
         """Extend l10n_cr_einvoice cron to also send POS tickets (TE) not invoiced."""
-        result = super()._fp_cron_send_pending_documents()
+        result = self._cr_call_parent_cron("_fp_cron_send_pending_documents")
         targets = self.env["pos.order"]._cr_get_pending_send_ticket_targets(limit=200)
         for order, _target_type in targets:
-            order._cr_send_pending_te_to_hacienda()
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_send_pending_te_to_hacienda()
+            except Exception:  # noqa: BLE001
+                self._logger.exception(
+                    "Error enviando TE POS pendiente para order_id=%s desde cron de account.move.",
+                    order.id,
+                )
         return result
 
     @api.model
     def _fp_cron_consult_pending_documents(self):
         """Extend l10n_cr_einvoice cron to also consult POS tickets (TE) statuses."""
-        result = super()._fp_cron_consult_pending_documents()
+        result = self._cr_call_parent_cron("_fp_cron_consult_pending_documents")
         targets = self.env["pos.order"]._cr_get_pending_status_ticket_targets(limit=200)
         for order, _target_type in targets:
-            order._cr_check_pending_te_status()
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_check_pending_te_status()
+            except Exception:  # noqa: BLE001
+                self._logger.exception(
+                    "Error consultando estado TE POS pendiente para order_id=%s desde cron de account.move.",
+                    order.id,
+                )
         return result
+
+    @api.model
+    def _cr_call_parent_cron(self, method_name):
+        """Call parent FE cron defensively to avoid breaking when l10n_cr_einvoice API changes."""
+        parent_method = getattr(super(AccountMove, self), method_name, None)
+        if not parent_method:
+            self._logger.warning(
+                "No parent implementation found for %s; continuing with POS FE extension only.",
+                method_name,
+            )
+            return True
+        return parent_method()
