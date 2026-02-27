@@ -807,29 +807,29 @@ class PosOrder(models.Model):
         # Hacienda validates NC references against the original emitted document.
         # Do not build/send XML until the source document has a stable key + date.
         if origin_order:
-            # Ensure fresh FE data from DB; refund may run right after payment.
-            origin_order.invalidate_cache(['cr_fe_clave','cr_fe_consecutivo','cr_fe_document_type','date_order','fp_reference_code','fp_reference_reason'])
             # Hard-refresh from DB to avoid stale values inside the same request.
-            origin_order = origin_order.sudo().with_context(prefetch_fields=False).browse(origin_order.id)
-            origin_vals = origin_order.read(['cr_fe_clave','cr_fe_consecutivo','cr_fe_document_type','date_order'], load=False)[0]
-            origin_order.invalidate_cache(['cr_fe_clave','cr_fe_consecutivo','cr_fe_document_type','date_order'])
-            if origin_vals.get('cr_fe_clave') and not origin_order.cr_fe_clave:
-                origin_order.cr_fe_clave = origin_vals.get('cr_fe_clave')
-            if origin_vals.get('cr_fe_consecutivo') and not origin_order.cr_fe_consecutivo:
-                origin_order.cr_fe_consecutivo = origin_vals.get('cr_fe_consecutivo')
-            if origin_vals.get('cr_fe_document_type') and not origin_order.cr_fe_document_type:
-                origin_order.cr_fe_document_type = origin_vals.get('cr_fe_document_type')
-            if origin_vals.get('date_order') and not origin_order.date_order:
-                origin_order.date_order = origin_vals.get('date_order')
-            reference_number = origin_order.cr_fe_clave or False
+            origin_vals = origin_order.sudo().with_context(prefetch_fields=False).read(
+                [
+                    'cr_fe_clave',
+                    'cr_fe_consecutivo',
+                    'cr_fe_document_type',
+                    'date_order',
+                    'fp_reference_code',
+                    'fp_reference_reason',
+                ],
+                load=False,
+            )[0]
+
+            reference_number = origin_vals.get('cr_fe_clave') or False
             # If clave is not yet persisted but consecutivo exists, reconstruct deterministically.
-            if not reference_number and origin_order.cr_fe_consecutivo:
+            if not reference_number and origin_vals.get('cr_fe_consecutivo'):
                 try:
-                    reference_number = origin_order._cr_generate_fe_clave(origin_order.cr_fe_consecutivo)
+                    reference_number = origin_order._cr_generate_fe_clave(origin_vals.get('cr_fe_consecutivo'))
                     origin_order.sudo().write({'cr_fe_clave': reference_number})
                 except Exception:
                     reference_number = False
-            reference_date = origin_order.date_order.date() if origin_order.date_order else False
+            origin_date_order = origin_vals.get('date_order')
+            reference_date = origin_date_order.date() if origin_date_order else False
         else:
             reference_number = False
             reference_date = False
@@ -845,7 +845,7 @@ class PosOrder(models.Model):
         if not reference_number or not reference_date:
             return {}
 
-        origin_doc_type = (origin_order.cr_fe_document_type if origin_order else False) or (
+        origin_doc_type = (origin_vals.get('cr_fe_document_type') if origin_order else False) or (
             "fe" if origin_invoice else False
         )
         reference_doc_type = {
@@ -854,12 +854,12 @@ class PosOrder(models.Model):
             "nc": "03",  # Nota de Crédito
         }.get(origin_doc_type, "01")
         reference_code = (
-            (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
+            (origin_vals.get("fp_reference_code") if origin_order else False)
             or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
             or "01"
         )
         reference_reason = (
-            (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
+            (origin_vals.get("fp_reference_reason") if origin_order else False)
             or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
             or _("Devolución de mercadería")
         )
