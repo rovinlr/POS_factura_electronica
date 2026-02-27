@@ -812,15 +812,18 @@ class PosOrder(models.Model):
         # Do not build/send XML until the source document has a stable key + date.
         if origin_order:
             # Hard-refresh from DB to avoid stale values inside the same request.
+            read_fields = [
+                'cr_fe_clave',
+                'cr_fe_consecutivo',
+                'cr_fe_document_type',
+                'date_order',
+            ]
+            for optional_field in ('fp_reference_code', 'fp_reference_reason'):
+                if optional_field in origin_order._fields:
+                    read_fields.append(optional_field)
+
             origin_vals = origin_order.sudo().with_context(prefetch_fields=False).read(
-                [
-                    'cr_fe_clave',
-                    'cr_fe_consecutivo',
-                    'cr_fe_document_type',
-                    'date_order',
-                    'fp_reference_code',
-                    'fp_reference_reason',
-                ],
+                read_fields,
                 load=False,
             )[0]
 
