@@ -7,6 +7,42 @@ const firstDefined = (...values) => values.find((value) => value !== undefined &
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const normalizeReference = (value) => {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    const text = String(value).trim();
+    return text || null;
+};
+
+const getOrderServerId = (order, row) =>
+    firstDefined(
+        row?.id,
+        row?.server_id,
+        row?.backendId,
+        order?.server_id,
+        order?.backendId,
+        order?.id,
+        order?.get_server_id && order.get_server_id()
+    );
+
+const getOrderReferences = (order, row) => {
+    const values = [
+        row?.pos_reference,
+        row?.name,
+        row?.reference,
+        order?.pos_reference,
+        order?.name,
+        order?.uid,
+        order?.uuid,
+        order?.reference,
+        order?.trackingNumber,
+        order?.get_name && order.get_name(),
+        order?.get_name?.call && order.get_name.call(order),
+    ];
+    return [...new Set(values.map((value) => normalizeReference(value)).filter(Boolean))];
+};
+
 
 const isSameOrder = (order, row) => {
     const orderServerId = firstDefined(order.server_id, order.backendId, order.id);
@@ -74,15 +110,18 @@ patch(PosStore.prototype, {
         const timeoutMs = options.timeoutMs || 12000;
         const intervalMs = options.intervalMs || 700;
         const startedAt = Date.now();
-        const orderId = firstDefined(row?.id, row?.server_id, row?.backendId, order?.server_id, order?.id);
-        const orderRef = firstDefined(row?.pos_reference, row?.name, order?.name, order?.pos_reference, order?.uid);
+        const orderId = getOrderServerId(order, row);
+        const orderRefs = getOrderReferences(order, row);
 
         while (Date.now() - startedAt < timeoutMs) {
-            const domain = orderId
-                ? [["id", "=", Number(orderId)]]
-                : orderRef
-                  ? [["pos_reference", "=", String(orderRef)]]
-                  : [];
+            let domain = [];
+            if (orderId) {
+                domain = [["id", "=", Number(orderId)]];
+            } else if (orderRefs.length === 1) {
+                domain = ["|", ["pos_reference", "=", orderRefs[0]], ["name", "=", orderRefs[0]]];
+            } else if (orderRefs.length > 1) {
+                domain = ["|", ["pos_reference", "in", orderRefs], ["name", "in", orderRefs]];
+            }
             if (!domain.length) {
                 return false;
             }
