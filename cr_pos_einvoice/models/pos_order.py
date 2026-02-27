@@ -544,6 +544,12 @@ class PosOrder(models.Model):
         order_record._cr_process_after_payment()
         return result
 
+    def action_pos_order_paid(self):
+        """Trigger FE flow when the order is validated from backend POS forms."""
+        result = super().action_pos_order_paid()
+        self.filtered(lambda order: order.state in ("paid", "done", "invoiced"))._cr_process_after_payment()
+        return result
+
     def _prepare_invoice_vals(self):
         vals = super()._prepare_invoice_vals()
         config = self.config_id
