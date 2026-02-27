@@ -3,6 +3,7 @@ import base64
 import hashlib
 from collections import defaultdict
 from datetime import timedelta
+from lxml import etree
 from markupsafe import Markup, escape
 
 from psycopg2 import IntegrityError
@@ -1231,6 +1232,7 @@ class PosOrder(models.Model):
 
         move = order._cr_build_virtual_move(document_type=document_type, consecutivo=consecutivo, clave=clave)
         xml_text = move._fp_generate_invoice_xml(clave=clave)
+        xml_text = order._cr_sanitize_ticket_receptor_activity(xml_text, document_type=document_type)
         signed_xml_text = move._fp_sign_xml(xml_text)
 
         xml_bytes = signed_xml_text.encode("utf-8")
@@ -1254,6 +1256,36 @@ class PosOrder(models.Model):
             }
         )
         return {"ok": True, "xml_attachment_id": attachment.id, "digest": digest, "reused": False}
+
+    def _cr_sanitize_ticket_receptor_activity(self, xml_text, *, document_type=None):
+        """For TE, enforce omission of <CodigoActividadReceptor> in emitted XML.
+
+        Hacienda TE documents must not include this node, even when the customer record has
+        an economic activity configured. We sanitize only TE payloads and leave FE/NC intact.
+        """
+        self.ensure_one()
+        doc_type = (document_type or self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower()
+        if doc_type != "te" or not xml_text:
+            return xml_text
+
+        try:
+            parser = etree.XMLParser(remove_blank_text=False, recover=True)
+            root = etree.fromstring(xml_text.encode("utf-8"), parser=parser)
+        except Exception:  # noqa: BLE001
+            self._logger.warning("No se pudo parsear XML TE para remover CodigoActividadReceptor; se conserva el XML original.")
+            return xml_text
+
+        removed = 0
+        for node in root.xpath("//*[local-name()='CodigoActividadReceptor']"):
+            parent = node.getparent()
+            if parent is not None:
+                parent.remove(node)
+                removed += 1
+
+        if not removed:
+            return xml_text
+
+        return etree.tostring(root, encoding="unicode")
 
 
     def send_to_hacienda(self, order_id, *, document_type=None, idempotency_key=None, company_id=None, **kwargs):

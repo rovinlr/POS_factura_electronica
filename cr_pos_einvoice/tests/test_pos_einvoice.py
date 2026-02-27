@@ -97,6 +97,24 @@ class TestPosEInvoice(TransactionCase):
         self.assertIn("<Cantidad>2", xml_text)
         self.assertIn("<PrecioUnitario>100", xml_text)
 
+
+    def test_te_xml_sanitizer_removes_codigo_actividad_receptor(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        xml_in = """<TiqueteElectronico xmlns="https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/tiqueteElectronico"><Receptor><Nombre>Cliente general</Nombre><CodigoActividadReceptor>620100</CodigoActividadReceptor></Receptor></TiqueteElectronico>"""
+
+        xml_out = order._cr_sanitize_ticket_receptor_activity(xml_in, document_type="te")
+
+        self.assertNotIn("<CodigoActividadReceptor>", xml_out)
+        self.assertIn("<Nombre>Cliente general</Nombre>", xml_out)
+
+    def test_te_xml_sanitizer_keeps_codigo_actividad_receptor_for_fe(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        xml_in = """<FacturaElectronica xmlns="https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/facturaElectronica"><Receptor><Nombre>Cliente</Nombre><CodigoActividadReceptor>620100</CodigoActividadReceptor></Receptor></FacturaElectronica>"""
+
+        xml_out = order._cr_sanitize_ticket_receptor_activity(xml_in, document_type="fe")
+
+        self.assertIn("<CodigoActividadReceptor>620100</CodigoActividadReceptor>", xml_out)
+
     def test_sync_last_consecutivo_in_einvoice_config_uses_service_method_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
         captured = {}
