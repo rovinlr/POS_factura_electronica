@@ -12,6 +12,33 @@ const normalizeText = (value) => {
     return text || null;
 };
 
+const normalizeDocumentType = (value) => {
+    const text = normalizeText(value);
+    if (!text) {
+        return null;
+    }
+    const normalized = text.toLowerCase();
+    const mapping = {
+        te: "te",
+        fe: "fe",
+        nc: "nc",
+        nd: "nd",
+        tiquete: "te",
+        "tiquete electronico": "te",
+        "tiquete electrónico": "te",
+        factura: "fe",
+        "factura electronica": "fe",
+        "factura electrónica": "fe",
+        "nota credito": "nc",
+        "nota de credito": "nc",
+        "nota de crédito": "nc",
+        "nota debito": "nd",
+        "nota de debito": "nd",
+        "nota de débito": "nd",
+    };
+    return mapping[normalized] || normalized;
+};
+
 const pickPartner = (order) =>
     firstDefined(
         order.getPartner && order.getPartner(),
@@ -120,7 +147,7 @@ patch(PosOrder.prototype, {
         }
 
         receipt.einvoice = {
-            document_type: this.cr_fe_document_type || null,
+            document_type: normalizeDocumentType(this.cr_fe_document_type || this.fp_document_type),
             consecutivo: this.cr_fe_consecutivo || null,
             clave: this.cr_fe_clave || null,
             status: this.cr_fe_status || null,
@@ -135,6 +162,13 @@ patch(PosOrder.prototype, {
                     )
                 ) || null,
         };
+
+        // Keep duplicated FE keys at root level to support receipt templates that
+        // still read legacy keys directly from `props.data`.
+        receipt.cr_fe_document_type = receipt.einvoice.document_type;
+        receipt.cr_fe_consecutivo = receipt.einvoice.consecutivo;
+        receipt.cr_fe_clave = receipt.einvoice.clave;
+        receipt.cr_fe_status = receipt.einvoice.status;
         return receipt;
     },
 });

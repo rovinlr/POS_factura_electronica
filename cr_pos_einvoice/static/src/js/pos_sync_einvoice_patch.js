@@ -15,8 +15,17 @@ const normalizeReference = (value) => {
     return text || null;
 };
 
+const normalizeNumericId = (value) => {
+    if (value === undefined || value === null || value === false) {
+        return null;
+    }
+    const numeric = Number(value);
+    return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+};
+
 const getOrderServerId = (order, row) =>
-    firstDefined(
+    normalizeNumericId(
+        firstDefined(
         row?.id,
         row?.server_id,
         row?.backendId,
@@ -24,6 +33,7 @@ const getOrderServerId = (order, row) =>
         order?.backendId,
         order?.id,
         order?.get_server_id && order.get_server_id()
+        )
     );
 
 const getOrderReferences = (order, row) => {
