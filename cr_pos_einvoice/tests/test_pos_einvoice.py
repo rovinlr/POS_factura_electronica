@@ -250,6 +250,7 @@ class TestPosEInvoice(TransactionCase):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
         self.assertEqual(order._cr_get_pos_document_type(), "te")
 
+
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
         order_line = self.env["pos.order.line"].new({"order_id": order.id})
@@ -271,6 +272,54 @@ class TestPosEInvoice(TransactionCase):
         order._compute_fp_pos_fe_fields()
 
         self.assertEqual(order.fp_document_type, "NC")
+
+
+    def test_extract_issue_date_from_clave(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        clave = "50627022600050393008700200010040000000381000000888"
+
+        issue_date = order._cr_extract_issue_date_from_clave(clave)
+
+        self.assertEqual(issue_date, fields.Date.from_string("2026-02-27"))
+
+    def test_get_refund_reference_data_uses_clave_date_when_origin_date_missing(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+
+        class FakeOriginOrder:
+            _fields = {
+                "cr_fe_clave": object(),
+                "cr_fe_consecutivo": object(),
+                "cr_fe_document_type": object(),
+                "date_order": object(),
+            }
+            write_date = False
+            create_date = False
+
+            def sudo(self):
+                return self
+
+            def with_context(self, **kwargs):
+                return self
+
+            def read(self, fields, load=False):
+                return [
+                    {
+                        "cr_fe_clave": "50627022600050393008700200010040000000381000000888",
+                        "cr_fe_consecutivo": False,
+                        "cr_fe_document_type": "te",
+                        "date_order": False,
+                    }
+                ]
+
+        fake_origin_order = FakeOriginOrder()
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: fake_origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ), patch.object(type(order), "_cr_is_credit_note_order", lambda self: True):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("issue_date"), fields.Date.from_string("2026-02-27"))
 
     def test_get_refund_reference_data_skips_missing_optional_reference_fields(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})

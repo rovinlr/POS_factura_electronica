@@ -810,6 +810,24 @@ class PosOrder(models.Model):
 
         return values
 
+    def _cr_extract_issue_date_from_clave(self, clave):
+        """Extract FE issue date from Costa Rica clave (positions 4-9: ddmmyy)."""
+        self.ensure_one()
+        if not clave:
+            return False
+
+        clave_text = str(clave).strip()
+        if len(clave_text) < 9 or not clave_text[3:9].isdigit():
+            return False
+
+        try:
+            day = int(clave_text[3:5])
+            month = int(clave_text[5:7])
+            year = 2000 + int(clave_text[7:9])
+            return fields.Date.from_string(f"{year:04d}-{month:02d}-{day:02d}")
+        except Exception:  # noqa: BLE001
+            return False
+
     def _cr_get_refund_reference_data(self):
         """Return normalized FE reference data for refund orders."""
         self.ensure_one()
@@ -858,7 +876,21 @@ class PosOrder(models.Model):
                 or getattr(origin_invoice, "l10n_cr_numero_consecutivo", False)
             )
         if not reference_date and origin_invoice:
-            reference_date = origin_invoice.invoice_date or False
+            reference_date = (
+                origin_invoice.invoice_date
+                or getattr(origin_invoice, "date", False)
+                or getattr(origin_invoice, "create_date", False)
+                or False
+            )
+
+        if not reference_date and reference_number:
+            reference_date = self._cr_extract_issue_date_from_clave(reference_number)
+
+        if not reference_date and origin_order:
+            reference_date = (
+                (origin_order.write_date.date() if origin_order.write_date else False)
+                or (origin_order.create_date.date() if origin_order.create_date else False)
+            )
 
         if not reference_number or not reference_date:
             return {}
@@ -884,7 +916,7 @@ class PosOrder(models.Model):
         return {
             "document_type": reference_doc_type,
             "number": reference_number,
-            "issue_date": reference_date,
+            "issue_date": fields.Date.to_date(reference_date) if reference_date else False,
             "code": reference_code,
             "reason": reference_reason,
         }
