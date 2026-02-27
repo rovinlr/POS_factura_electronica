@@ -237,6 +237,47 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(reference_data.get("document_type"), "04")
         self.assertEqual(reference_data.get("number"), origin_order.cr_fe_clave)
 
+    def test_get_refund_reference_data_skips_missing_optional_reference_fields(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+
+        class FakeOriginOrder:
+            _fields = {
+                "cr_fe_clave": object(),
+                "cr_fe_consecutivo": object(),
+                "cr_fe_document_type": object(),
+                "date_order": object(),
+            }
+
+            def sudo(self):
+                return self
+
+            def with_context(self, **kwargs):
+                return self
+
+            def read(self, fields, load=False):
+                assert "fp_reference_code" not in fields
+                assert "fp_reference_reason" not in fields
+                return [
+                    {
+                        "cr_fe_clave": "50601010100000000000000100001010000000001123456789",
+                        "cr_fe_consecutivo": "00100001010000000001",
+                        "cr_fe_document_type": "te",
+                        "date_order": fields_module.Datetime.now(),
+                    }
+                ]
+
+        fields_module = fields
+        fake_origin_order = FakeOriginOrder()
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: fake_origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ), patch.object(type(order), "_cr_is_credit_note_order", lambda self: True):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("code"), "01")
+        self.assertEqual(reference_data.get("reason"), "Devolución de mercadería")
+
     def test_build_pos_payload_for_nc_includes_reference_aliases(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
         reference_date = fields.Date.today()
