@@ -3,7 +3,7 @@
 
     <!-- Keep native Odoo receipt layout; append FE block only. -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//div[contains(@class, 'pos-receipt')]" position="inside">
+        <xpath expr="//div[hasclass('pos-receipt')]" position="inside">
             <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
             <t t-set="currentOrder" t-value="(props &amp;&amp; (props.order || props.currentOrder)) || null"/>
             <t t-set="company" t-value="(data &amp;&amp; (data.company || data.headerData)) || {}"/>
@@ -118,7 +118,7 @@
 
     <!-- Column headers for order lines: Cant / Descripción / Importe -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//div[contains(@class, 'pos-receipt-orderlines')]/*[1]" position="before">
+        <xpath expr="//div[hasclass('pos-receipt-orderlines')]" position="before">
             <div class="cr-fe-orderlines-header"
                  style="display:flex;gap:6px;font-weight:600;border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px;">
                 <span style="flex:0 0 15%;">Cant</span>
@@ -130,7 +130,7 @@
 
     <!-- Discount summary line right before Total (always shown, positive amount) -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//div[contains(@class,'pos-receipt-right-align')][.//span[normalize-space()='Total']]" position="before">
+        <xpath expr="//div[hasclass('pos-receipt-right-align')][.//span[normalize-space()='Total']]" position="before">
             <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
             <t t-set="currentOrder" t-value="(props &amp;&amp; (props.order || props.currentOrder)) || null"/>
             <t t-set="discount_amount" t-value="
@@ -151,7 +151,7 @@
 
 
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//div[contains(@class, 'pos-receipt')]" position="inside">
+        <xpath expr="//div[hasclass('pos-receipt')]" position="inside">
             <div style="text-align:center;margin-top:8px;" class="cr-fe-footer">
                 <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 13/11/2024 de la DGTD.</div>
                 <div>Version XML 4.4</div>
