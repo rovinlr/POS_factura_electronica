@@ -1,7 +1,9 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { Order } from "@point_of_sale/app/models/pos_order";
+import * as PosOrderModule from "@point_of_sale/app/models/pos_order";
+
+const OrderModel = PosOrderModule.Order || PosOrderModule.PosOrder || PosOrderModule.default;
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 const normalizeText = (value) => {
@@ -78,7 +80,8 @@ const buildPartnerData = (order, receipt) => {
     };
 };
 
-patch(Order.prototype, {
+if (OrderModel?.prototype) {
+    patch(OrderModel.prototype, {
     export_as_JSON() {
         const json = super.export_as_JSON ? super.export_as_JSON(...arguments) : {};
         json.cr_fe_document_type = this.cr_fe_document_type || null;
@@ -171,4 +174,7 @@ patch(Order.prototype, {
         receipt.cr_fe_status = receipt.einvoice.status;
         return receipt;
     },
-});
+    });
+} else {
+    console.warn("[cr_pos_einvoice] POS Order model not found; receipt FE patch was skipped.");
+}
