@@ -1,7 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { Order } from "@point_of_sale/app/store/models";
+import { Order } from "@point_of_sale/app/models/pos_order";
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 const normalizeText = (value) => {
