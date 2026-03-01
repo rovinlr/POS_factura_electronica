@@ -361,14 +361,51 @@ class PosOrder(models.Model):
 
     def _cr_get_next_consecutivo_by_document_type(self, document_type):
         self.ensure_one()
+        self._cr_lock_consecutive_counter(document_type)
+
+        service_last = self._cr_get_current_last_consecutive_number(document_type)
+        next_from_service = (service_last + 1) if service_last is not None else None
+
+        sequence = self._cr_get_or_create_sequence(document_type or self.cr_fe_document_type or "te")
+        sequence_raw = sequence.next_by_id()
+        sequence_number = self._cr_extract_last_consecutive_number(sequence_raw)
+
+        if sequence_number is None and next_from_service is None:
+            return "0000000001"
+        if sequence_number is None:
+            target_next = next_from_service
+        elif next_from_service is None:
+            target_next = sequence_number
+        else:
+            target_next = max(sequence_number, next_from_service)
+
+        # Keep local sequence aligned with authoritative FE counters when those
+        # are ahead of the internal sequence value.
+        if sequence_number is not None and target_next > sequence_number:
+            sequence.sudo().write({"number_next": target_next + 1})
+
+        return str(target_next).zfill(10)
+
+    def _cr_lock_consecutive_counter(self, document_type):
+        """Serialize consecutive assignment per company/document type."""
+        self.ensure_one()
+        doc_code = (document_type or self.cr_fe_document_type or "te").upper()
+        lock_key = f"cr_pos_fe_consecutive:{self.company_id.id}:{doc_code}"
+        self.env.cr.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
+
+    def _cr_get_next_consecutivo_from_service(self, document_type):
+        """Read next consecutive from external FE service when supported."""
+        self.ensure_one()
         service = self._cr_service()
         doc_code = (document_type or self.cr_fe_document_type or "te").upper()
+        if not service:
+            return None
+
         if service:
             for method_name in (
                 "get_next_consecutivo",
                 "get_next_consecutive",
                 "get_next_consecutivo_by_document_type",
-                "get_last_consecutivo_by_document_type",
             ):
                 method = getattr(service, method_name, False)
                 if not method:
@@ -379,13 +416,10 @@ class PosOrder(models.Model):
                     result = method(self.company_id.id, doc_code)
                 if result:
                     value = result.get("consecutivo") if isinstance(result, dict) else result
-                    if method_name == "get_last_consecutivo_by_document_type":
-                        digits = "".join(char for char in str(value) if char.isdigit())
-                        next_number = int(digits[-10:] or "0") + 1
-                        return str(next_number).zfill(10)
-                    return str(value)
-        sequence = self._cr_get_or_create_sequence(document_type or self.cr_fe_document_type or "te")
-        return sequence.next_by_id()
+                    numeric_value = self._cr_extract_last_consecutive_number(value)
+                    if numeric_value is not None:
+                        return numeric_value
+        return None
 
     def _cr_sync_last_consecutivo_in_einvoice_config(self, document_type, consecutivo):
         """Best-effort sync with FE configuration's "último número" counters."""
