@@ -1,7 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { PosStore } from "@point_of_sale/app/store/pos_store";
+import { PosStore } from "@point_of_sale/app/services/pos_store";
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
@@ -162,7 +162,7 @@ patch(PosStore.prototype, {
     },
 
     async showScreen(screen, props) {
-        const activeOrder = this.get_order ? this.get_order() : this.selectedOrder;
+        const activeOrder = this.getOrder ? this.getOrder() : this.selectedOrder;
         const feEnabled = Boolean(
             firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled)
         );
