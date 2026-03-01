@@ -498,3 +498,46 @@ class TestPosEInvoice(TransactionCase):
             reference_data = order._cr_get_refund_reference_data()
 
         self.assertEqual(reference_data, {})
+
+    def test_extract_other_charges_from_ui_and_payload_mapping(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+            }
+        )
+
+        ui_order = {
+            "data": {
+                "name": "Order 001",
+                "other_charges": [
+                    {"type": "02", "code": "99", "amount": 1200.5, "currency": "CRC", "description": "Flete"},
+                    {"type": "03", "amount": -10},
+                    {"type": "01", "amount": "invalido"},
+                ],
+            }
+        }
+
+        vals = self.env["pos.order"]._order_fields(ui_order)
+        self.assertIn("cr_other_charges_json", vals)
+        order.cr_other_charges_json = vals["cr_other_charges_json"]
+
+        payload = order._cr_build_pos_payload(
+            consecutivo="00100001040000000111",
+            clave="50601010100000000000000100001040000000111123456789",
+            document_type="te",
+        )
+
+        self.assertIn("other_charges", payload)
+        self.assertEqual(len(payload["other_charges"]), 1)
+        self.assertEqual(payload["other_charges"][0]["description"], "Flete")
+        self.assertEqual(payload["other_charges"], payload["otros_cargos"])

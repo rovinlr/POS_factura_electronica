@@ -28,3 +28,35 @@ Integración de **Punto de Venta en Odoo 19** con **`l10n_cr_einvoice`** (Costa 
 - Secuencia de consecutivo por compañía/tipo documental usando `ir.sequence`.
 - Validaciones previas de datos mínimos del emisor y pagos POS.
 - Reintentos con backoff y trazabilidad de error (`cr_fe_error_code`, `cr_fe_last_error`).
+
+## Otros cargos en POS (FE CR v4.4)
+
+El puente ahora acepta otros cargos en la orden POS para enviarlos al payload canónico FE.
+
+### Cómo asignarlos desde POS (JS/OWL)
+
+En un módulo POS propio, sobre la orden activa:
+
+```javascript
+const order = this.pos.get_order();
+order.setOtherCharges([
+  {
+    type: "02",          // catálogo FE (ej. flete)
+    code: "99",          // subcódigo/razón
+    amount: 1500.0,       // > 0
+    currency: "CRC",
+    description: "Flete local",
+  },
+]);
+```
+
+### Qué persiste y qué recibe FE
+
+- Se exporta en JSON POS como `cr_other_charges` (alias: `other_charges`).
+- Backend POS lo guarda en `pos.order.cr_other_charges_json`.
+- El payload FE incluye alias:
+  - `other_charges`
+  - `otros_cargos`
+  - `fp_other_charges`
+
+Con esto, implementaciones de `l10n_cr_einvoice` con diferentes nombres de campo pueden consumir los cargos sin duplicar XML ni romper assets OWL.
