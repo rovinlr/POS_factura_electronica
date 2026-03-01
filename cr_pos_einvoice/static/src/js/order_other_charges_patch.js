@@ -1,7 +1,9 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { Order } from "@point_of_sale/app/models/pos_order";
+import * as PosOrderModule from "@point_of_sale/app/models/pos_order";
+
+const OrderModel = PosOrderModule.Order || PosOrderModule.PosOrder || PosOrderModule.default;
 
 const normalizeCharge = (charge) => {
     if (!charge || typeof charge !== "object") {
@@ -21,7 +23,8 @@ const normalizeCharge = (charge) => {
     };
 };
 
-patch(Order.prototype, {
+if (OrderModel?.prototype) {
+    patch(OrderModel.prototype, {
     setup() {
         super.setup(...arguments);
         this.cr_other_charges = Array.isArray(this.cr_other_charges)
@@ -52,4 +55,7 @@ patch(Order.prototype, {
         super.init_from_JSON(...arguments);
         this.setOtherCharges(json?.cr_other_charges || json?.other_charges || []);
     },
-});
+    });
+} else {
+    console.warn("[cr_pos_einvoice] POS Order model not found; other charges patch was skipped.");
+}
