@@ -384,11 +384,22 @@ class PosOrder(models.Model):
     def _cr_sync_last_consecutivo_in_einvoice_config(self, document_type, consecutivo):
         """Best-effort sync with FE configuration's "último número" counters."""
         self.ensure_one()
-        if not consecutivo:
+        target_number = self._cr_extract_last_consecutive_number(consecutivo)
+        if target_number is None:
             return False
 
-        digits = "".join(char for char in str(consecutivo) if char.isdigit())
-        last_number = str(int(digits[-10:] or "0"))
+        current_number = self._cr_get_current_last_consecutive_number(document_type)
+        if current_number is not None and target_number <= current_number:
+            self._logger.info(
+                "Skip FE consecutive rollback for %s (company_id=%s): target=%s current=%s",
+                (document_type or self.cr_fe_document_type or "te").upper(),
+                self.company_id.id,
+                target_number,
+                current_number,
+            )
+            return True
+
+        last_number = str(target_number)
 
         service = self._cr_service()
         doc_code = (document_type or self.cr_fe_document_type or "te").upper()
@@ -422,6 +433,45 @@ class PosOrder(models.Model):
                 return True
 
         return False
+
+    def _cr_extract_last_consecutive_number(self, consecutivo):
+        self.ensure_one()
+        if not consecutivo:
+            return None
+        digits = "".join(char for char in str(consecutivo) if char.isdigit())
+        return int(digits[-10:] or "0")
+
+    def _cr_get_current_last_consecutive_number(self, document_type):
+        self.ensure_one()
+        doc_code = (document_type or self.cr_fe_document_type or "te").upper()
+        service = self._cr_service()
+        if service:
+            for method_name in ("get_last_consecutivo_by_document_type", "get_last_consecutive_by_document_type"):
+                method = getattr(service, method_name, False)
+                if not method:
+                    continue
+                try:
+                    result = method(company_id=self.company_id.id, document_type=doc_code)
+                except TypeError:
+                    result = method(self.company_id.id, doc_code)
+                value = result.get("consecutivo") if isinstance(result, dict) else result
+                number = self._cr_extract_last_consecutive_number(value)
+                if number is not None:
+                    return number
+
+        company = self.company_id.sudo()
+        fallback_fields = {
+            "TE": ("fp_consecutive_te", "fp_consecutive_fe"),
+            "FE": ("fp_consecutive_fe",),
+            "NC": ("fp_consecutive_nc",),
+        }
+        for field_name in fallback_fields.get(doc_code, ("fp_consecutive_fe",)):
+            if field_name in company._fields:
+                number = self._cr_extract_last_consecutive_number(company[field_name])
+                if number is not None:
+                    return number
+
+        return None
 
     def _cr_get_fe_document_code(self, document_type=None):
         self.ensure_one()
