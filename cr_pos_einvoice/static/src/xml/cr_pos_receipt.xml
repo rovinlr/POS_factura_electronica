@@ -32,31 +32,13 @@
                     <div class="cr-divider"/>
                 </t>
 
-                <div class="cr-center cr-doc-type">
-                    <t t-set="dtype" t-value="(einvoice.document_type || data.cr_fe_document_type || data.fp_document_type || '').toLowerCase()"/>
-                    <strong>Tipo de comprobante:</strong>
-                    <t t-if="dtype == 'te'"> Tiquete electrónico</t>
-                    <t t-elif="dtype == 'fe'"> Factura electrónica</t>
-                    <t t-elif="dtype == 'nc'"> Nota de crédito electrónica</t>
-                    <t t-elif="dtype == 'nd'"> Nota de débito electrónica</t>
-                    <t t-else=""> Comprobante</t>
-                </div>
-
-                <t t-set="consec" t-value="einvoice.consecutivo || data.cr_fe_consecutivo || data.fp_consecutive_number || ''"/>
-                <div class="cr-center cr-small">
-                    <strong>Consecutivo:</strong>
-                    <t t-if="consec"><t t-esc="consec"/></t>
-                    <t t-else="">Pendiente</t>
-                </div>
-
-                <div class="cr-block">
-                    <div class="cr-title">Clave</div>
-                    <t t-if="einvoice.clave || data.cr_fe_clave || data.fp_external_id">
-                        <div class="cr-mono cr-wrap"><t t-esc="einvoice.clave || data.cr_fe_clave || data.fp_external_id"/></div>
-                    </t>
-                    <t t-else="">
-                        <div class="cr-small">Pendiente</div>
-                    </t>
+                <div class="cr-block cr-small">
+                    <div><strong>Tipo de comprobante:</strong> <t t-esc="einvoice.document_type || data.cr_fe_document_type || 'Comprobante'"/></div>
+                    <div><strong>Consecutivo:</strong> <t t-esc="einvoice.consecutivo || data.cr_fe_consecutivo || 'Pendiente'"/></div>
+                    <div>
+                        <strong>Clave:</strong>
+                        <span class="cr-mono cr-wrap"><t t-esc="einvoice.clave || data.cr_fe_clave || 'Pendiente'"/></span>
+                    </div>
                 </div>
 
                 <div class="cr-divider"/>

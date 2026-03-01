@@ -112,13 +112,7 @@ const isReceiptScreen = (screen) => {
     return firstDefined(screen.name, screen.component?.name, screen.constructor?.name) === "ReceiptScreen";
 };
 
-const needsFeWait = (values) => {
-    const documentType = firstDefined(values?.cr_fe_document_type, values?.document_type, values?.fp_document_type);
-    if (!documentType) {
-        return false;
-    }
-    return !hasRequiredFeData(values);
-};
+const needsFeWait = (values) => !hasRequiredFeData(values);
 
 const getOrmService = (store) =>
     firstDefined(store.orm, store.env?.services?.orm, store.pos?.env?.services?.orm, store.data?.orm);
@@ -130,8 +124,8 @@ patch(PosStore.prototype, {
             return false;
         }
 
-        const timeoutMs = options.timeoutMs || 12000;
-        const intervalMs = options.intervalMs || 700;
+        const timeoutMs = options.timeoutMs || 30000;
+        const intervalMs = options.intervalMs || 1000;
         const startedAt = Date.now();
         const orderId = getOrderServerId(order, row);
         const orderRefs = getOrderReferences(order, row);
