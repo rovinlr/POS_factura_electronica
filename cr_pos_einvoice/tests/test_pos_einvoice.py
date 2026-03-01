@@ -144,6 +144,16 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(synced)
         self.assertEqual(order.company_id.fp_consecutive_fe, "123")
 
+    def test_sync_last_consecutivo_in_einvoice_config_does_not_rollback_company_counter(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        order.company_id.fp_consecutive_fe = "44"
+
+        with patch.object(type(order), "_cr_service", lambda self: False):
+            synced = order._cr_sync_last_consecutivo_in_einvoice_config("te", "00100001040000000042")
+
+        self.assertTrue(synced)
+        self.assertEqual(order.company_id.fp_consecutive_fe, "44")
+
     def test_build_refund_reference_values_sets_reference_fields_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
         origin_order = self.env["pos.order"].new(
