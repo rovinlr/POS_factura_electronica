@@ -1,9 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import * as PosOrderModule from "@point_of_sale/app/models/pos_order";
-
-const OrderModel = PosOrderModule.Order || PosOrderModule.PosOrder || PosOrderModule.default;
+import { Order } from "@point_of_sale/app/store/models";
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 const normalizeText = (value) => {
@@ -80,8 +78,8 @@ const buildPartnerData = (order, receipt) => {
     };
 };
 
-if (OrderModel?.prototype) {
-    patch(OrderModel.prototype, {
+if (Order?.prototype) {
+    patch(Order.prototype, {
     export_as_JSON() {
         const json = super.export_as_JSON ? super.export_as_JSON(...arguments) : {};
         json.cr_fe_document_type = this.cr_fe_document_type || null;
