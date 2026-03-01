@@ -1,6 +1,7 @@
 import logging
 import base64
 import hashlib
+import json
 from collections import defaultdict
 from datetime import timedelta
 from lxml import etree
@@ -22,6 +23,11 @@ class PosOrder(models.Model):
     _CR_FINAL_STATES = ("accepted", "rejected", "not_applicable")
 
     cr_ticket_move_id = fields.Many2one("account.move", string="Movimiento FE Tiquete", copy=False, index=True)
+    cr_other_charges_json = fields.Text(
+        string="Otros cargos FE (JSON)",
+        copy=False,
+        help="JSON canónico con la colección de Otros Cargos para FE CR v4.4.",
+    )
     cr_fe_document_type = fields.Selection(
         [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica"), ("nc", "Nota de Crédito")],
         string="Tipo documento FE",
@@ -695,6 +701,74 @@ class PosOrder(models.Model):
         order_record._cr_process_after_payment()
         return result
 
+    @api.model
+    def _order_fields(self, ui_order):
+        fields_vals = super()._order_fields(ui_order)
+        charges = self._cr_extract_other_charges_from_ui(ui_order)
+        if charges:
+            fields_vals["cr_other_charges_json"] = json.dumps(charges)
+        return fields_vals
+
+    @api.model
+    def _cr_extract_other_charges_from_ui(self, ui_order):
+        if not isinstance(ui_order, dict):
+            return []
+        payload = ui_order.get("data", ui_order)
+        candidates = (
+            payload.get("cr_other_charges"),
+            payload.get("other_charges"),
+            payload.get("otros_cargos"),
+        )
+        for candidate in candidates:
+            normalized = self._cr_normalize_other_charges(candidate)
+            if normalized:
+                return normalized
+        return []
+
+    def _cr_normalize_other_charges(self, raw_charges):
+        if not raw_charges:
+            return []
+        if isinstance(raw_charges, str):
+            try:
+                raw_charges = json.loads(raw_charges)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw_charges, list):
+            return []
+
+        normalized = []
+        for charge in raw_charges:
+            if not isinstance(charge, dict):
+                continue
+            amount = charge.get("amount", charge.get("monto"))
+            try:
+                amount = float(amount)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+            charge_type = (
+                charge.get("type")
+                or charge.get("tipo")
+                or charge.get("charge_type")
+                or "99"
+            )
+            normalized.append(
+                {
+                    "type": str(charge_type),
+                    "code": str(charge.get("code") or charge.get("codigo") or "01"),
+                    "amount": amount,
+                    "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
+                    "description": str(charge.get("description") or charge.get("detalle") or "Cargo adicional POS"),
+                    "percent": charge.get("percent", charge.get("porcentaje")),
+                }
+            )
+        return normalized
+
+    def _cr_get_other_charges_payload(self):
+        self.ensure_one()
+        return self._cr_normalize_other_charges(self.cr_other_charges_json)
+
     def action_pos_order_paid(self):
         """Trigger FE flow when the order is validated from backend POS forms."""
         result = super().action_pos_order_paid()
@@ -1186,6 +1260,8 @@ class PosOrder(models.Model):
         if reference_issue_date:
             reference_issue_date = fields.Date.to_string(reference_issue_date)
 
+        other_charges = self._cr_get_other_charges_payload()
+
         return {
             "order_id": self.id,
             "name": self.name,
@@ -1231,6 +1307,9 @@ class PosOrder(models.Model):
             "l10n_cr_reference_issue_date": reference_issue_date,
             "l10n_cr_reference_code": reference_data.get("code"),
             "l10n_cr_reference_reason": reference_data.get("reason"),
+            "other_charges": other_charges,
+            "otros_cargos": other_charges,
+            "fp_other_charges": other_charges,
             "lines": lines,
         }
 
