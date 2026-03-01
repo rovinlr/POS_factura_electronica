@@ -1,9 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import * as PosOrderModule from "@point_of_sale/app/models/pos_order";
-
-const OrderModel = PosOrderModule.Order || PosOrderModule.PosOrder || PosOrderModule.default;
+import { Order } from "@point_of_sale/app/store/models";
 
 const normalizeCharge = (charge) => {
     if (!charge || typeof charge !== "object") {
@@ -23,8 +21,8 @@ const normalizeCharge = (charge) => {
     };
 };
 
-if (OrderModel?.prototype) {
-    patch(OrderModel.prototype, {
+if (Order?.prototype) {
+    patch(Order.prototype, {
     setup() {
         super.setup(...arguments);
         this.cr_other_charges = Array.isArray(this.cr_other_charges)
