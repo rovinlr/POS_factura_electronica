@@ -717,7 +717,43 @@ class PosOrder(models.Model):
         charges = self._cr_extract_other_charges_from_ui(ui_order)
         if charges:
             fields_vals["cr_other_charges_json"] = json.dumps(charges)
+        manual_reference = self._cr_extract_manual_reference_from_ui(ui_order)
+        if manual_reference:
+            fields_vals.update(manual_reference)
         return fields_vals
+
+    @api.model
+    def _cr_extract_manual_reference_from_ui(self, ui_order):
+        """Extract manual NC reference data serialized by POS UI payload."""
+        if not isinstance(ui_order, dict):
+            return {}
+
+        payload = ui_order.get("data", ui_order)
+        if not isinstance(payload, dict):
+            return {}
+
+        reference_payload = payload.get("reference") if isinstance(payload.get("reference"), dict) else {}
+        candidate_values = {
+            "cr_fe_reference_document_type": payload.get("cr_fe_reference_document_type") or reference_payload.get("document_type"),
+            "cr_fe_reference_document_number": payload.get("cr_fe_reference_document_number") or reference_payload.get("number"),
+            "cr_fe_reference_issue_date": payload.get("cr_fe_reference_issue_date") or reference_payload.get("issue_date"),
+            "cr_fe_reference_code": payload.get("cr_fe_reference_code") or reference_payload.get("code"),
+            "cr_fe_reference_reason": payload.get("cr_fe_reference_reason") or reference_payload.get("reason"),
+        }
+
+        manual_reference = {}
+        for field_name, raw_value in candidate_values.items():
+            if raw_value in (False, None):
+                continue
+            value = raw_value.strip() if isinstance(raw_value, str) else raw_value
+            if value in (False, None, ""):
+                continue
+            if field_name == "cr_fe_reference_issue_date":
+                value = fields.Date.to_date(value)
+                if not value:
+                    continue
+            manual_reference[field_name] = value
+        return manual_reference
 
     @api.model
     def _cr_extract_other_charges_from_ui(self, ui_order):
