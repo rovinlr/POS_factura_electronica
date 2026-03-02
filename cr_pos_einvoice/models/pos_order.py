@@ -64,26 +64,11 @@ class PosOrder(models.Model):
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
     cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
-    cr_fe_reference_document_type = fields.Char(
-        string="Tipo documento referencia FE",
-        compute="_compute_cr_fe_reference_preview",
-    )
-    cr_fe_reference_document_number = fields.Char(
-        string="Número documento referencia FE",
-        compute="_compute_cr_fe_reference_preview",
-    )
-    cr_fe_reference_issue_date = fields.Date(
-        string="Fecha emisión referencia FE",
-        compute="_compute_cr_fe_reference_preview",
-    )
-    cr_fe_reference_code = fields.Char(
-        string="Código referencia FE",
-        compute="_compute_cr_fe_reference_preview",
-    )
-    cr_fe_reference_reason = fields.Char(
-        string="Razón referencia FE",
-        compute="_compute_cr_fe_reference_preview",
-    )
+    cr_fe_reference_document_type = fields.Char(string="Tipo documento referencia FE", copy=False)
+    cr_fe_reference_document_number = fields.Char(string="Número documento referencia FE", copy=False)
+    cr_fe_reference_issue_date = fields.Date(string="Fecha emisión referencia FE", copy=False)
+    cr_fe_reference_code = fields.Char(string="Código referencia FE", copy=False)
+    cr_fe_reference_reason = fields.Char(string="Razón referencia FE", copy=False)
     fp_document_type = fields.Selection(
         selection="_selection_fp_document_type",
         string="Tipo de comprobante FE",
@@ -245,25 +230,16 @@ class PosOrder(models.Model):
             order.fp_payment_method = method.fp_payment_method if method else False
             order.fp_economic_activity_id = order.config_id.fp_economic_activity_id
 
-    @api.depends(
-        "amount_total",
-        "date_order",
-        "cr_fe_document_type",
-        "lines.refunded_orderline_id.order_id",
-        "lines.refunded_orderline_id.order_id.cr_fe_clave",
-        "lines.refunded_orderline_id.order_id.cr_fe_consecutivo",
-        "lines.refunded_orderline_id.order_id.cr_fe_document_type",
-        "lines.refunded_orderline_id.order_id.date_order",
-        "lines.refunded_orderline_id.order_id.account_move",
-    )
-    def _compute_cr_fe_reference_preview(self):
-        for order in self:
-            reference_data = order._cr_get_refund_reference_data()
-            order.cr_fe_reference_document_type = reference_data.get("document_type")
-            order.cr_fe_reference_document_number = reference_data.get("number")
-            order.cr_fe_reference_issue_date = reference_data.get("issue_date")
-            order.cr_fe_reference_code = reference_data.get("code")
-            order.cr_fe_reference_reason = reference_data.get("reason")
+    def _cr_get_manual_reference_data(self):
+        """Manual NC reference captured on pos.order (backend payment wizard/UI)."""
+        self.ensure_one()
+        return {
+            "document_type": (self.cr_fe_reference_document_type or "").strip() or False,
+            "number": (self.cr_fe_reference_document_number or "").strip() or False,
+            "issue_date": fields.Date.to_date(self.cr_fe_reference_issue_date) if self.cr_fe_reference_issue_date else False,
+            "code": (self.cr_fe_reference_code or "").strip() or False,
+            "reason": (self.cr_fe_reference_reason or "").strip() or False,
+        }
 
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
@@ -806,8 +782,34 @@ class PosOrder(models.Model):
     def action_pos_order_paid(self):
         """Trigger FE flow when the order is validated from backend POS forms."""
         result = super().action_pos_order_paid()
-        self.filtered(lambda order: order.state in ("paid", "done", "invoiced"))._cr_process_after_payment()
+        paid_orders = self.filtered(lambda order: order.state in ("paid", "done", "invoiced"))
+        paid_orders._cr_capture_reference_on_payment()
+        paid_orders._cr_process_after_payment()
         return result
+
+    def _cr_capture_reference_on_payment(self):
+        """Persist NC reference snapshot at payment time for deterministic XML build."""
+        for order in self:
+            if not order._cr_is_credit_note_order():
+                continue
+
+            current_values = order._cr_get_manual_reference_data()
+            if all(current_values.get(key) for key in ("document_type", "number", "issue_date")):
+                # Operator-provided values take precedence and must not be overwritten.
+                continue
+
+            reference_data = order._cr_get_refund_reference_data()
+            if not reference_data:
+                continue
+
+            vals = {
+                "cr_fe_reference_document_type": reference_data.get("document_type"),
+                "cr_fe_reference_document_number": reference_data.get("number"),
+                "cr_fe_reference_issue_date": reference_data.get("issue_date"),
+                "cr_fe_reference_code": reference_data.get("code") or "01",
+                "cr_fe_reference_reason": reference_data.get("reason") or _("Devolución de mercadería"),
+            }
+            order.sudo().write(vals)
 
     def _prepare_invoice_vals(self):
         vals = super()._prepare_invoice_vals()
@@ -997,6 +999,15 @@ class PosOrder(models.Model):
         self.ensure_one()
         if not self._cr_is_credit_note_order():
             return {}
+
+        manual_reference_data = self._cr_get_manual_reference_data()
+        if all(
+            manual_reference_data.get(required_key)
+            for required_key in ("document_type", "number", "issue_date")
+        ):
+            manual_reference_data.setdefault("code", "01")
+            manual_reference_data.setdefault("reason", _("Devolución de mercadería"))
+            return manual_reference_data
 
         origin_order = self._cr_get_origin_order_for_refund()
         origin_invoice = self._cr_get_origin_invoice_for_refund()

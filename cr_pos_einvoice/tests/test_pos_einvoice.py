@@ -499,6 +499,29 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(reference_data, {})
 
+    def test_get_refund_reference_data_prioritizes_manual_pos_reference_fields(self):
+        manual_issue_date = fields.Date.from_string("2026-02-27")
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+                "cr_fe_reference_document_type": "04",
+                "cr_fe_reference_document_number": "50601010100000000000000100001040000000001123456789",
+                "cr_fe_reference_issue_date": manual_issue_date,
+                "cr_fe_reference_code": "02",
+                "cr_fe_reference_reason": "Anulación parcial",
+            }
+        )
+
+        reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("number"), "50601010100000000000000100001040000000001123456789")
+        self.assertEqual(reference_data.get("issue_date"), manual_issue_date)
+        self.assertEqual(reference_data.get("code"), "02")
+        self.assertEqual(reference_data.get("reason"), "Anulación parcial")
+
     def test_extract_other_charges_from_ui_and_payload_mapping(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
