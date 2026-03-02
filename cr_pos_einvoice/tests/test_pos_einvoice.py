@@ -522,6 +522,33 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(reference_data.get("code"), "02")
         self.assertEqual(reference_data.get("reason"), "Anulación parcial")
 
+    def test_order_fields_imports_manual_reference_from_ui_payload(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Order 001",
+                "amount_total": -10.0,
+                "reference": {
+                    "document_type": "04",
+                    "number": "50601010100000000000000100001040000000001123456789",
+                    "issue_date": "2026-02-27",
+                    "code": "01",
+                    "reason": "Devolución de mercadería",
+                },
+            }
+        }
+
+        fields_vals = order_model._order_fields(ui_order)
+
+        self.assertEqual(fields_vals.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(
+            fields_vals.get("cr_fe_reference_document_number"),
+            "50601010100000000000000100001040000000001123456789",
+        )
+        self.assertEqual(fields_vals.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(fields_vals.get("cr_fe_reference_code"), "01")
+        self.assertEqual(fields_vals.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
     def test_extract_other_charges_from_ui_and_payload_mapping(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
