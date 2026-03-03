@@ -733,6 +733,10 @@ class PosOrder(models.Model):
         if draft or not result:
             return result
         order_record = self.browse(result).exists() if isinstance(result, int) else result
+        # POS frontend payments reach this path directly and may skip
+        # `action_pos_order_paid`; persist NC references before FE preparation
+        # so `_cr_prepare_te_document` can always build the XML deterministically.
+        order_record._cr_capture_reference_on_payment()
         order_record._cr_process_after_payment()
         return result
 
