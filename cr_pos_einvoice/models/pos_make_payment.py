@@ -16,10 +16,23 @@ class PosMakePayment(models.TransientModel):
         return self.env["pos.order"].browse(order_ids).exists()
 
     def check(self):
-        """Guarantee NC references are persisted before order payment finalization."""
+        """Persistir referencias NC antes y después del pago.
+
+        En POS (incluyendo flujos con pagos en línea), el `account.move` puede
+        crearse/postear dentro de `super().check()`. Capturamos referencias antes
+        y re-disparamos el flujo FE al final para mantener consistencia.
+        """
         for wizard in self:
-            orders = wizard._cr_get_payment_target_orders().filtered(lambda order: order._cr_is_credit_note_order())
+            orders = wizard._cr_get_payment_target_orders().filtered(lambda o: o._cr_is_credit_note_order())
             if orders:
                 orders._cr_capture_reference_on_payment()
 
-        return super().check()
+        result = super().check()
+
+        for wizard in self:
+            paid_orders = wizard._cr_get_payment_target_orders().filtered(lambda o: o.state in ("paid", "done", "invoiced"))
+            if paid_orders:
+                paid_orders._cr_capture_reference_on_payment()
+                paid_orders._cr_process_after_payment()
+
+        return result

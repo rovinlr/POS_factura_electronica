@@ -706,6 +706,38 @@ class PosOrder(models.Model):
                         attachments=[new_resp],
                     )
 
+        reference_fields = {
+            "cr_fe_reference_document_type",
+            "cr_fe_reference_document_number",
+            "cr_fe_reference_issue_date",
+        }
+        if (
+            not self.env.context.get("cr_fe_skip_autosend_reference")
+            and reference_fields.intersection(vals)
+        ):
+            targets = self.filtered(
+                lambda o: o.cr_fe_error_code == "reference_pending"
+                and o.cr_fe_status == "error_retry"
+                and o._cr_is_credit_note_order()
+                and o._cr_has_complete_refund_reference_data()
+                and o.config_id
+                and o.config_id.cr_fe_enabled
+                and getattr(o.config_id, "cr_fe_auto_send_on_reference", True)
+            )
+            for order in targets:
+                if not order._cr_should_emit_ticket():
+                    continue
+                try:
+                    with self.env.cr.savepoint():
+                        order.with_context(cr_fe_skip_autosend_reference=True)._cr_prepare_te_document()
+                except SerializationFailure:
+                    self._logger.warning(
+                        "Skipping immediate FE prepare for POS order %s due to concurrent update; cron will retry.",
+                        order.id,
+                    )
+                except Exception as error:  # noqa: BLE001
+                    self._logger.exception("Immediate FE prepare failed for POS order %s: %s", order.id, error)
+
         return res
     @api.model
     def create_from_ui(self, orders, draft=False):
@@ -713,6 +745,7 @@ class PosOrder(models.Model):
         if draft:
             return result
         records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
+        records._cr_capture_reference_on_payment()
         records._cr_process_after_payment()
         return self._cr_attach_fe_fields_to_ui_result(result)
 
@@ -903,8 +936,16 @@ class PosOrder(models.Model):
         return self._cr_normalize_other_charges(self.cr_other_charges_json)
 
     def action_pos_order_paid(self):
-        """Trigger FE flow when the order is validated from backend POS forms."""
+        """Trigger FE flow when the order is validated from backend POS forms.
+
+        Para NC (refund), algunas rutas pueden crear/postear movimientos antes de que
+        la referencia esté persistida en el pedido. Capturamos referencia antes del
+        flujo base y repetimos al final para asegurar consistencia.
+        """
+        self._cr_capture_reference_on_payment()
+
         result = super().action_pos_order_paid()
+
         paid_orders = self.filtered(lambda order: order.state in ("paid", "done", "invoiced"))
         paid_orders._cr_capture_reference_on_payment()
         paid_orders._cr_process_after_payment()

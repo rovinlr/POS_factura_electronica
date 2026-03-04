@@ -1,7 +1,7 @@
 {
     "name": "CR POS Electronic Invoice Bridge",
     "summary": "Puente POS -> FE CR (Tiquete/Factura) reutilizando l10n_cr_einvoice",
-    "version": "19.0.1.1.0",
+    "version": "19.0.1.1.2",
     "category": "Point of Sale",
     "author": "FenixCr Solutions",
     "license": "LGPL-3",
