@@ -336,6 +336,25 @@ class PosOrder(models.Model):
         self.ensure_one()
         return f"POS-{self.company_id.id}-{self.config_id.id}-{self.name or self.pos_reference or self.id}"
 
+    def _cr_get_or_create_idempotency_key(self):
+        """Return a stable FE idempotency key and persist it when missing.
+
+        NC/Refund flows can call FE backends from different entry points (prepare,
+        send or status check). Persisting the key as soon as we need FE interaction
+        keeps retries deterministic and avoids duplicate emission under concurrency.
+        """
+        self.ensure_one()
+        if self.cr_fe_idempotency_key:
+            return self.cr_fe_idempotency_key
+
+        key = self._cr_build_idempotency_key()
+        try:
+            self.write({"cr_fe_idempotency_key": key})
+        except IntegrityError as error:
+            self.env.cr.rollback()
+            raise UserError(_("La llave de idempotencia ya fue utilizada para esta compañía.")) from error
+        return key
+
     def _cr_sequence_code(self, document_type):
         self.ensure_one()
         doc_type = (document_type or "te").lower()
@@ -1401,7 +1420,7 @@ class PosOrder(models.Model):
                 )
             )
 
-        idempotency_key = self.cr_fe_idempotency_key or self._cr_build_idempotency_key()
+        idempotency_key = self._cr_get_or_create_idempotency_key()
         doc_type = self._cr_get_pos_document_type()
         consecutivo = self.cr_fe_consecutivo or self._cr_generate_fe_consecutivo(document_type=doc_type)
         clave = self.cr_fe_clave or self._cr_generate_fe_clave(consecutivo)
@@ -1647,6 +1666,7 @@ class PosOrder(models.Model):
         order.ensure_one()
         if order.invoice_status == "invoiced":
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
+        order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_xml_attachment_id or not order.cr_fe_xml_attachment_id.datas:
             order._cr_prepare_te_document()
 
@@ -1677,6 +1697,7 @@ class PosOrder(models.Model):
         order.ensure_one()
         if order.invoice_status == "invoiced":
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
+        order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_clave:
             return {"ok": False, "status": "error", "reason": "missing_clave"}
 
