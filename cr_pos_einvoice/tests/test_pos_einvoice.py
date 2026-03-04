@@ -1,4 +1,5 @@
 from odoo import fields
+from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 from unittest.mock import patch
@@ -445,6 +446,27 @@ class TestPosEInvoice(TransactionCase):
                 self.assertEqual(move[field_name], expected)
         if "reversed_entry_id" in move._fields:
             self.assertEqual(move.reversed_entry_id, origin_invoice)
+
+
+    def test_send_pending_te_marks_reference_pending_when_prepare_raises_usererror(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "cr_fe_status": "pending", "amount_total": -10.0})
+        captured = {}
+
+        def _fake_prepare(_self):
+            raise UserError("missing reference")
+
+        def _fake_write(_self, values):
+            captured.update(values)
+            return True
+
+        with patch.object(type(order), "_cr_prepare_te_document", _fake_prepare), patch.object(
+            type(order), "_cr_should_delay_credit_note_xml", lambda self: True
+        ), patch.object(type(order), "write", _fake_write):
+            sent = order._cr_send_pending_te_to_hacienda()
+
+        self.assertFalse(sent)
+        self.assertEqual(captured.get("cr_fe_status"), "error_retry")
+        self.assertEqual(captured.get("cr_fe_error_code"), "reference_pending")
 
     def test_should_delay_credit_note_xml_when_reference_is_incomplete(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})

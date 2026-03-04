@@ -1868,10 +1868,9 @@ class PosOrder(models.Model):
             return False
         if self.cr_fe_status not in ("pending", "error_retry") and not force:
             return False
-        if not self.cr_fe_xml_attachment_id:
-            self._cr_prepare_te_document()
-
         try:
+            if not self.cr_fe_xml_attachment_id:
+                self._cr_prepare_te_document()
             self._cr_validate_before_send()
             result = self._cr_call_service_method(
                 [
