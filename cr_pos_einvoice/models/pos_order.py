@@ -569,7 +569,28 @@ class PosOrder(models.Model):
         required_fields = ("document_type", "number", "issue_date")
         return bool(reference_data and all(reference_data.get(field_name) for field_name in required_fields))
 
-    def _cr_should_delay_credit_note_xml(self):
+    
+    def _cr_is_reference_pending_error(self, error=None):
+        """Return True when a UserError relates to missing NC reference data.
+
+        Some POS flows update the origin/reference data in the same request, so
+        double-check both the computed reference and the error message to decide
+        whether to retry later.
+        """
+        self.ensure_one()
+        if not self._cr_is_credit_note_order():
+            return False
+
+        # Primary signal: reference data incomplete.
+        if not self._cr_has_complete_refund_reference_data():
+            return True
+
+        # Fallback: match known validation message (translated).
+        if error and "requiere información de referencia" in str(error):
+            return True
+        return False
+
+def _cr_should_delay_credit_note_xml(self):
         """Credit notes must wait for references before generating XML."""
         self.ensure_one()
         return self._cr_is_credit_note_order() and not self._cr_has_complete_refund_reference_data()
@@ -687,6 +708,7 @@ class PosOrder(models.Model):
         if draft:
             return result
         records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
+        records._cr_capture_reference_on_payment()
         records._cr_process_after_payment()
         return self._cr_attach_fe_fields_to_ui_result(result)
 
@@ -845,19 +867,9 @@ class PosOrder(models.Model):
         return self._cr_normalize_other_charges(self.cr_other_charges_json)
 
     def action_pos_order_paid(self):
-        """Trigger FE flow when the order is validated from backend POS forms.
-
-        Para reembolsos (NC), la facturación/FE puede dispararse dentro del flujo estándar
-        de `action_pos_order_paid` (incluyendo la creación/posteo del account.move).
-        Por eso capturamos referencias **antes** de ejecutar el flujo base.
-        """
-        # Persistir referencias NC antes de que el flujo base cree/postee movimientos.
-        self._cr_capture_reference_on_payment()
-
+        """Trigger FE flow when the order is validated from backend POS forms."""
         result = super().action_pos_order_paid()
-
         paid_orders = self.filtered(lambda order: order.state in ("paid", "done", "invoiced"))
-        # Re-ejecutar por seguridad: si el flujo base creó movimientos, propagamos.
         paid_orders._cr_capture_reference_on_payment()
         paid_orders._cr_process_after_payment()
         return result
@@ -886,40 +898,6 @@ class PosOrder(models.Model):
             }
             order.sudo().write(vals)
 
-            invoice = order._cr_get_real_invoice_move()
-            if invoice:
-                order._cr_apply_refund_reference_to_invoice(invoice)
-
-
-    def _cr_apply_refund_reference_to_invoice(self, invoice):
-        """Asegura que el `account.move` (NC) tenga referencias antes de FE.
-
-        Algunas rutas del POS crean/postean el move antes de que la UI/wizard
-        persista referencias en el pedido. Este método aplica (sin pisar valores
-        existentes) los campos de referencia al move de tipo `out_refund`.
-        """
-        self.ensure_one()
-        if not invoice or invoice.move_type != "out_refund":
-            return False
-
-        reference_vals = self._cr_build_refund_reference_values()
-        if not reference_vals:
-            return False
-
-        safe_vals = {}
-        for field_name, value in reference_vals.items():
-            try:
-                current_value = invoice[field_name]
-            except Exception:  # noqa: BLE001
-                continue
-            if not current_value:
-                safe_vals[field_name] = value
-
-        if safe_vals:
-            invoice.sudo().write(safe_vals)
-            return True
-        return False
-
     def _prepare_invoice_vals(self):
         vals = super()._prepare_invoice_vals()
         config = self.config_id
@@ -938,31 +916,12 @@ class PosOrder(models.Model):
         When an order is marked `to_invoice`, `l10n_cr_einvoice` must own the FE
         flow (XML/sign/send/email). We force any known email flag to False to
         prevent POS from preempting that process.
-
-        Nota: Para NC (reembolsos), algunas rutas del POS disparan la generación
-        de FE al postear el move. Capturamos referencias **antes** de crear el
-        invoice para que el XML tenga la referencia lista desde el inicio.
         """
 
         for key in ("send_email", "email", "mail_invoice", "send_mail"):
             if key in kwargs:
                 kwargs[key] = False
-
-        # Asegurar referencias NC antes de crear/postear el invoice (account.move).
-        refund_orders = self.filtered(lambda order: order._cr_is_credit_note_order())
-        if refund_orders:
-            refund_orders._cr_capture_reference_on_payment()
-
-        result = super()._generate_pos_order_invoice(*args, **kwargs)
-
-        # Propagar referencias al move si ya existe (defensivo).
-        for order in refund_orders:
-            invoice = order._cr_get_real_invoice_move()
-            if invoice:
-                order._cr_apply_refund_reference_to_invoice(invoice)
-                order._cr_prepare_invoice_fe_values(invoice)
-
-        return result
+        return super()._generate_pos_order_invoice(*args, **kwargs)
 
     def _cr_get_origin_order_for_refund(self):
         """Find the original POS order referenced by refunded lines."""
@@ -1284,7 +1243,7 @@ class PosOrder(models.Model):
                     }
                 )
             except UserError as error:
-                if order._cr_should_delay_credit_note_xml():
+                if order._cr_is_reference_pending_error(error):
                     order.write(
                         {
                             "cr_fe_status": "error_retry",
@@ -1357,7 +1316,7 @@ class PosOrder(models.Model):
             return False
 
         self._cr_validate_before_send()
-        if self._cr_should_delay_credit_note_xml():
+        if self._cr_is_reference_pending_error(error):
             raise UserError(
                 _(
                     "La nota electrónica requiere información de referencia. Complete "
@@ -1864,7 +1823,7 @@ class PosOrder(models.Model):
             )
             return bool(result.get("ok"))
         except UserError as error:
-            if self._cr_should_delay_credit_note_xml():
+            if self._cr_is_reference_pending_error(error):
                 self.write(
                     {
                         "cr_fe_status": "error_retry",
