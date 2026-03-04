@@ -594,20 +594,22 @@ class PosOrder(models.Model):
         self.ensure_one()
         return self._cr_is_credit_note_order() and not self._cr_has_complete_refund_reference_data()
 
+    def _cr_apply_hacienda_order_action(self, action):
+        """Run a FE action in POS orders and keep invoice-driven orders in sync."""
+        self.ensure_one()
+        if self.invoice_status == "invoiced":
+            self._cr_sync_from_invoice_only()
+            return
+        action(self)
+
     def action_cr_send_hacienda(self):
         for order in self:
-            if order.invoice_status == "invoiced":
-                order._cr_sync_from_invoice_only()
-                continue
-            order._cr_send_pending_te_to_hacienda(force=True)
+            order._cr_apply_hacienda_order_action(lambda current: current._cr_send_pending_te_to_hacienda(force=True))
         return True
 
     def action_cr_check_hacienda_status(self):
         for order in self:
-            if order.invoice_status == "invoiced":
-                order._cr_sync_from_invoice_only()
-                continue
-            order._cr_check_pending_te_status()
+            order._cr_apply_hacienda_order_action(lambda current: current._cr_check_pending_te_status())
         return True
 
     def action_cr_open_fe_document(self):
