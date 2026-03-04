@@ -569,7 +569,6 @@ class PosOrder(models.Model):
         required_fields = ("document_type", "number", "issue_date")
         return bool(reference_data and all(reference_data.get(field_name) for field_name in required_fields))
 
-    
     def _cr_is_reference_pending_error(self, error=None):
         """Return True when a UserError relates to missing NC reference data.
 
@@ -590,7 +589,7 @@ class PosOrder(models.Model):
             return True
         return False
 
-def _cr_should_delay_credit_note_xml(self):
+    def _cr_should_delay_credit_note_xml(self):
         """Credit notes must wait for references before generating XML."""
         self.ensure_one()
         return self._cr_is_credit_note_order() and not self._cr_has_complete_refund_reference_data()
