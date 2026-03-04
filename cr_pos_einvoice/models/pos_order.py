@@ -569,47 +569,51 @@ class PosOrder(models.Model):
         required_fields = ("document_type", "number", "issue_date")
         return bool(reference_data and all(reference_data.get(field_name) for field_name in required_fields))
 
-    def _cr_is_reference_pending_error(self, error=None):
-        """Return True when a UserError relates to missing NC reference data.
-
-        Some POS flows update the origin/reference data in the same request, so
-        double-check both the computed reference and the error message to decide
-        whether to retry later.
-        """
-        self.ensure_one()
-        if not self._cr_is_credit_note_order():
-            return False
-
-        # Primary signal: reference data incomplete.
-        if not self._cr_has_complete_refund_reference_data():
-            return True
-
-        # Fallback: match known validation message (translated).
-        if error and "requiere información de referencia" in str(error):
-            return True
-        return False
-
     def _cr_should_delay_credit_note_xml(self):
         """Credit notes must wait for references before generating XML."""
         self.ensure_one()
         return self._cr_is_credit_note_order() and not self._cr_has_complete_refund_reference_data()
 
-    def _cr_apply_hacienda_order_action(self, action):
-        """Run a FE action in POS orders and keep invoice-driven orders in sync."""
+
+    def _cr_is_reference_pending_error(self, error=None):
+        """Return True when a UserError relates to missing NC reference data.
+
+        In some POS flows, reference data can be written in the same request
+        after the FE trigger starts. We therefore check both current reference
+        completeness and the exception message to decide whether to retry.
+        """
         self.ensure_one()
-        if self.invoice_status == "invoiced":
-            self._cr_sync_from_invoice_only()
-            return
-        action(self)
+        if not self._cr_is_credit_note_order():
+            return False
+
+        if not self._cr_has_complete_refund_reference_data():
+            return True
+
+        if not error:
+            return False
+
+        msg = str(error) or ""
+        fragments = (
+            "requiere información de referencia",
+            "requires reference information",
+            "requires reference data",
+        )
+        return any(fragment in msg for fragment in fragments)
 
     def action_cr_send_hacienda(self):
         for order in self:
-            order._cr_apply_hacienda_order_action(lambda current: current._cr_send_pending_te_to_hacienda(force=True))
+            if order.invoice_status == "invoiced":
+                order._cr_sync_from_invoice_only()
+                continue
+            order._cr_send_pending_te_to_hacienda(force=True)
         return True
 
     def action_cr_check_hacienda_status(self):
         for order in self:
-            order._cr_apply_hacienda_order_action(lambda current: current._cr_check_pending_te_status())
+            if order.invoice_status == "invoiced":
+                order._cr_sync_from_invoice_only()
+                continue
+            order._cr_check_pending_te_status()
         return True
 
     def action_cr_open_fe_document(self):
@@ -709,7 +713,6 @@ class PosOrder(models.Model):
         if draft:
             return result
         records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
-        records._cr_capture_reference_on_payment()
         records._cr_process_after_payment()
         return self._cr_attach_fe_fields_to_ui_result(result)
 
@@ -748,12 +751,44 @@ class PosOrder(models.Model):
                 enriched.append(payload or {"id": order_id})
         return enriched
 
-    def _process_order(self, order, draft, existing_order=False, **kwargs):
-        try:
-            result = super()._process_order(order, draft, existing_order, **kwargs)
-        except TypeError:
-            result = super()._process_order(order, draft, **kwargs)
-        if draft or not result:
+        def _process_order(self, order, *args, **kwargs):
+            """Process a POS order coming from UI sync.
+
+            Odoo and optional addons (e.g. pos_online_payment) call this method with
+            different signatures across versions:
+
+            - _process_order(order, existing_order=False)
+            - _process_order(order, draft, existing_order=False)
+
+            This override keeps compatibility while ensuring FE flows always see
+            persisted NC reference data before building XML.
+            """
+            draft = False
+            existing_order = False
+
+            if args:
+                if isinstance(args[0], bool):
+                    draft = args[0]
+                    if len(args) > 1:
+                        existing_order = args[1]
+                else:
+                    existing_order = args[0]
+
+            try:
+                result = super()._process_order(order, *args, **kwargs)
+            except TypeError:
+                # Fallback for older/newer signatures.
+                try:
+                    result = super()._process_order(order, draft, existing_order, **kwargs)
+                except TypeError:
+                    result = super()._process_order(order, draft, **kwargs)
+
+            if draft or not result:
+                return result
+
+            order_record = self.browse(result).exists() if isinstance(result, int) else result
+            order_record._cr_capture_reference_on_payment()
+            order_record._cr_process_after_payment()
             return result
         order_record = self.browse(result).exists() if isinstance(result, int) else result
         # POS frontend payments reach this path directly and may skip
@@ -1317,7 +1352,7 @@ class PosOrder(models.Model):
             return False
 
         self._cr_validate_before_send()
-        if self._cr_is_reference_pending_error(error):
+        if self._cr_should_delay_credit_note_xml():
             raise UserError(
                 _(
                     "La nota electrónica requiere información de referencia. Complete "
@@ -1824,7 +1859,7 @@ class PosOrder(models.Model):
             )
             return bool(result.get("ok"))
         except UserError as error:
-            if self._cr_is_reference_pending_error(error):
+            if self._cr_should_delay_credit_note_xml():
                 self.write(
                     {
                         "cr_fe_status": "error_retry",
