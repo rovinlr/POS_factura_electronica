@@ -845,7 +845,12 @@ class PosOrder(models.Model):
         if not order:
             return {}
 
-        if order._cr_should_emit_ticket() and (not order.cr_fe_consecutivo or not order.cr_fe_clave):
+        should_prepare_identifiers = (
+            order._cr_should_emit_ticket()
+            and not order._cr_should_delay_credit_note_xml()
+            and (not order.cr_fe_consecutivo or not order.cr_fe_clave)
+        )
+        if should_prepare_identifiers:
             try:
                 with self.env.cr.savepoint():
                     order._cr_prepare_te_document()
