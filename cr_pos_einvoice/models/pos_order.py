@@ -233,38 +233,46 @@ class PosOrder(models.Model):
     def _cr_get_manual_reference_data(self):
         """Manual NC reference captured on pos.order (backend payment wizard/UI)."""
         self.ensure_one()
-        if self.id:
-            # Force DB read to avoid stale cache when payment wizard/UI writes the
-            # reference in a parallel env and the order is sent immediately after.
-            # This guarantees deterministic NC XML generation without requiring a
-            # form reload.
-            db_values = self.sudo().with_context(prefetch_fields=False).read(
-                [
-                    "cr_fe_reference_document_type",
-                    "cr_fe_reference_document_number",
-                    "cr_fe_reference_issue_date",
-                    "cr_fe_reference_code",
-                    "cr_fe_reference_reason",
-                ],
-                load=False,
-            )[0]
-            return {
-                "document_type": (db_values.get("cr_fe_reference_document_type") or "").strip() or False,
-                "number": (db_values.get("cr_fe_reference_document_number") or "").strip() or False,
-                "issue_date": fields.Date.to_date(db_values.get("cr_fe_reference_issue_date"))
-                if db_values.get("cr_fe_reference_issue_date")
-                else False,
-                "code": (db_values.get("cr_fe_reference_code") or "").strip() or False,
-                "reason": (db_values.get("cr_fe_reference_reason") or "").strip() or False,
-            }
-
-        return {
+        reference_data = {
             "document_type": (self.cr_fe_reference_document_type or "").strip() or False,
             "number": (self.cr_fe_reference_document_number or "").strip() or False,
             "issue_date": fields.Date.to_date(self.cr_fe_reference_issue_date) if self.cr_fe_reference_issue_date else False,
             "code": (self.cr_fe_reference_code or "").strip() or False,
             "reason": (self.cr_fe_reference_reason or "").strip() or False,
         }
+
+        if not self.id:
+            return reference_data
+
+        # Force DB read to avoid stale cache when payment wizard/UI writes the
+        # reference in a parallel env and the order is sent immediately after.
+        # Also merge with in-memory values so same-transaction updates are never
+        # lost by a strict DB-only read (prevents false `reference_pending`).
+        db_values = self.sudo().with_context(prefetch_fields=False).read(
+            [
+                "cr_fe_reference_document_type",
+                "cr_fe_reference_document_number",
+                "cr_fe_reference_issue_date",
+                "cr_fe_reference_code",
+                "cr_fe_reference_reason",
+            ],
+            load=False,
+        )[0]
+
+        db_reference_data = {
+            "document_type": (db_values.get("cr_fe_reference_document_type") or "").strip() or False,
+            "number": (db_values.get("cr_fe_reference_document_number") or "").strip() or False,
+            "issue_date": fields.Date.to_date(db_values.get("cr_fe_reference_issue_date"))
+            if db_values.get("cr_fe_reference_issue_date")
+            else False,
+            "code": (db_values.get("cr_fe_reference_code") or "").strip() or False,
+            "reason": (db_values.get("cr_fe_reference_reason") or "").strip() or False,
+        }
+
+        merged_reference_data = {}
+        for key in ("document_type", "number", "issue_date", "code", "reason"):
+            merged_reference_data[key] = reference_data.get(key) or db_reference_data.get(key) or False
+        return merged_reference_data
 
     def _cr_normalize_hacienda_status(self, status, default_status=False):
         self.ensure_one()
