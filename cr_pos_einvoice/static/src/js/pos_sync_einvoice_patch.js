@@ -143,12 +143,21 @@ patch(PosStore.prototype, {
                 return false;
             }
 
-            const [result] = await orm.call(
-                "pos.order",
-                "search_read",
-                [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
-                { limit: 1 }
-            );
+            let result = null;
+            try {
+                result = await orm.call("pos.order", "cr_pos_get_order_fe_for_receipt", [], {
+                    order_id: orderId || null,
+                    references: orderRefs,
+                });
+            } catch {
+                const records = await orm.call(
+                    "pos.order",
+                    "search_read",
+                    [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
+                    { limit: 1 }
+                );
+                result = records && records[0] ? records[0] : null;
+            }
             if (result) {
                 applyFeFields(order, result);
                 if (hasRequiredFeData(result)) {

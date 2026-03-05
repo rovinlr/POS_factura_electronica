@@ -811,6 +811,51 @@ class PosOrder(models.Model):
                 enriched.append(payload or {"id": order_id})
         return enriched
 
+    @api.model
+    def cr_pos_get_order_fe_for_receipt(self, order_id=None, references=None):
+        """Return FE receipt fields and prepare TE identifiers on-demand when possible."""
+
+        refs = []
+        for value in references or []:
+            if value in (False, None):
+                continue
+            normalized = str(value).strip()
+            if normalized and normalized not in refs:
+                refs.append(normalized)
+
+        domain = []
+        if order_id:
+            domain = [("id", "=", int(order_id))]
+        elif refs:
+            domain = ["|", ("pos_reference", "in", refs), ("name", "in", refs)]
+        else:
+            return {}
+
+        order = self.search(domain, limit=1)
+        if not order:
+            return {}
+
+        if order._cr_should_emit_ticket() and (not order.cr_fe_consecutivo or not order.cr_fe_clave):
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_prepare_te_document()
+            except Exception as error:  # noqa: BLE001
+                self._logger.info(
+                    "Unable to prepare FE identifiers for POS receipt order %s: %s",
+                    order.id,
+                    error,
+                )
+
+        return {
+            "id": order.id,
+            "pos_reference": order.pos_reference,
+            "cr_fe_document_type": order.cr_fe_document_type,
+            "cr_fe_consecutivo": order.cr_fe_consecutivo,
+            "cr_fe_clave": order.cr_fe_clave,
+            "cr_fe_status": order.cr_fe_status,
+            "fp_payment_method": order.fp_payment_method,
+        }
+
         def _process_order(self, order, *args, **kwargs):
             """Process a POS order coming from UI sync.
 

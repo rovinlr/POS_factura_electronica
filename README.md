@@ -60,3 +60,25 @@ order.setOtherCharges([
   - `fp_other_charges`
 
 Con esto, implementaciones de `l10n_cr_einvoice` con diferentes nombres de campo pueden consumir los cargos sin duplicar XML ni romper assets OWL.
+
+## ¿Cómo imprimir `Consecutivo` y `Clave` si `pos.order` nace al validar el pago?
+
+En Odoo 19 POS, la orden se materializa en backend al confirmar pago. Por diseño, `Consecutivo` y `Clave` FE pueden no existir en el **primer render** del ticket. Este módulo lo resuelve con un flujo enterprise seguro, sin duplicar XML ni romper OWL:
+
+1. **Impresión inicial controlada**: el template del recibo muestra `Pendiente` cuando Hacienda aún no devolvió datos FE.
+2. **Sincronización post-sync**: al recibir respuesta del backend, se injertan en memoria los campos `cr_fe_consecutivo`, `cr_fe_clave` y estado FE.
+3. **Polling acotado en `ReceiptScreen`**: si faltan datos FE, POS consulta `pos.order` por un tiempo corto para completar metadatos antes de cerrar pantalla.
+4. **Reimpresión consistente**: cualquier reimpresión posterior ya sale con `Consecutivo` y `Clave` definitivos.
+
+### Campos usados en ticket
+
+- `einvoice.consecutivo` (fallback `cr_fe_consecutivo`)
+- `einvoice.clave` (fallback `cr_fe_clave`)
+
+### Recomendación de operación (Costa Rica)
+
+Para cumplimiento FE v4.4 en ambientes de alta concurrencia:
+
+- Mantener habilitada la espera corta en frontend (actual comportamiento).
+- Capacitar caja para reimpresión automática/manual cuando el primer tiraje salga en `Pendiente` por latencia de Hacienda.
+- No bloquear la venta por disponibilidad externa de Hacienda; el estado final se audita en backend (`cr_fe_status`, trazas y reintentos).
