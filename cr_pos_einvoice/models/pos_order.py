@@ -733,6 +733,9 @@ class PosOrder(models.Model):
                         attachments=[new_resp],
                     )
 
+        if "lines" in vals:
+            self._cr_capture_reference_snapshot()
+
         reference_fields = {
             "cr_fe_reference_document_type",
             "cr_fe_reference_document_number",
@@ -766,6 +769,13 @@ class PosOrder(models.Model):
                     self._logger.exception("Immediate FE prepare failed for POS order %s: %s", order.id, error)
 
         return res
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records._cr_capture_reference_snapshot()
+        return records
+
     @api.model
     def create_from_ui(self, orders, draft=False):
         result = super().create_from_ui(orders, draft=draft)
@@ -1025,27 +1035,46 @@ class PosOrder(models.Model):
 
     def _cr_capture_reference_on_payment(self):
         """Persist NC reference snapshot at payment time for deterministic XML build."""
+        self._cr_capture_reference_snapshot()
+
+    def _cr_capture_reference_snapshot(self):
+        """Persist NC FE reference data as soon as the refund has enough source metadata."""
         for order in self:
             if not order._cr_is_credit_note_order():
                 continue
 
-            current_values = order._cr_get_manual_reference_data()
-            if all(current_values.get(key) for key in ("document_type", "number", "issue_date")):
-                # Operator-provided values take precedence and must not be overwritten.
+            existing_snapshot = order._cr_get_manual_reference_data()
+            if all(existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")):
+                # Existing/operator-provided values take precedence and must not be overwritten.
                 continue
 
             reference_data = order._cr_get_refund_reference_data()
             if not reference_data:
                 continue
 
-            vals = {
-                "cr_fe_reference_document_type": reference_data.get("document_type"),
-                "cr_fe_reference_document_number": reference_data.get("number"),
-                "cr_fe_reference_issue_date": reference_data.get("issue_date"),
-                "cr_fe_reference_code": reference_data.get("code") or "01",
-                "cr_fe_reference_reason": reference_data.get("reason") or _("Devolución de mercadería"),
-            }
-            order.sudo().write(vals)
+            vals = {}
+            if not existing_snapshot.get("document_type") and reference_data.get("document_type"):
+                vals["cr_fe_reference_document_type"] = reference_data.get("document_type")
+            if not existing_snapshot.get("number") and reference_data.get("number"):
+                vals["cr_fe_reference_document_number"] = reference_data.get("number")
+            if not existing_snapshot.get("issue_date") and reference_data.get("issue_date"):
+                vals["cr_fe_reference_issue_date"] = reference_data.get("issue_date")
+            if not order.cr_fe_reference_code:
+                vals["cr_fe_reference_code"] = reference_data.get("code") or "01"
+            if not order.cr_fe_reference_reason:
+                vals["cr_fe_reference_reason"] = reference_data.get("reason") or _("Devolución de mercadería")
+
+            if vals:
+                order.sudo().write(vals)
+
+    def _cr_get_first_existing_field_value(self, record, field_names):
+        """Return the first non-empty value from field names that exist on `record`."""
+        if not record:
+            return False
+        for field_name in field_names:
+            if field_name in record._fields and record[field_name]:
+                return record[field_name]
+        return False
 
     def _prepare_invoice_vals(self):
         vals = super()._prepare_invoice_vals()
@@ -1282,15 +1311,22 @@ class PosOrder(models.Model):
             reference_date = False
 
         if not reference_number and origin_invoice:
-            reference_number = (
-                getattr(origin_invoice, "l10n_cr_clave", False)
-                or getattr(origin_invoice, "l10n_cr_numero_consecutivo", False)
+            reference_number = self._cr_get_first_existing_field_value(
+                origin_invoice,
+                (
+                    "fp_external_id",
+                    "l10n_cr_clave",
+                    "l10n_cr_einvoice_key",
+                    "l10n_cr_numero_consecutivo",
+                    "fp_consecutive_number",
+                    "fp_consecutive",
+                    "name",
+                    "payment_reference",
+                ),
             )
         if not reference_date and origin_invoice:
             reference_date = (
-                origin_invoice.invoice_date
-                or getattr(origin_invoice, "date", False)
-                or getattr(origin_invoice, "create_date", False)
+                self._cr_get_first_existing_field_value(origin_invoice, ("invoice_date", "date", "create_date"))
                 or False
             )
 
