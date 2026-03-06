@@ -596,6 +596,33 @@ class PosOrder(models.Model):
         required_fields = ("document_type", "number", "issue_date")
         return bool(reference_data and all(reference_data.get(field_name) for field_name in required_fields))
 
+    def _cr_get_missing_refund_reference_fields(self):
+        """Return missing FE reference labels for a refund in a deterministic order."""
+        self.ensure_one()
+        if not self._cr_is_credit_note_order():
+            return []
+
+        reference_data = self._cr_get_refund_reference_data()
+        required_fields = (
+            ("document_type", _("tipo")),
+            ("number", _("número")),
+            ("issue_date", _("fecha")),
+        )
+        return [label for key, label in required_fields if not (reference_data and reference_data.get(key))]
+
+    def _cr_build_reference_pending_message(self):
+        """Return a user-facing, actionable message for pending NC references."""
+        self.ensure_one()
+        missing = self._cr_get_missing_refund_reference_fields()
+        base = _(
+            "La nota de crédito se enviará cuando exista la referencia "
+            "(tipo, número y fecha del documento original)."
+        )
+        if not missing:
+            return base
+
+        return _("%s Campos pendientes: %s.") % (base, ", ".join(missing))
+
     def _cr_should_delay_credit_note_xml(self):
         """Credit notes must wait for references before generating XML."""
         self.ensure_one()
@@ -1438,10 +1465,7 @@ class PosOrder(models.Model):
                         {
                             "cr_fe_status": "error_retry",
                             "cr_fe_error_code": "reference_pending",
-                            "cr_fe_last_error": _(
-                                "La nota de crédito se enviará cuando exista la referencia "
-                                "(tipo, número y fecha del documento original)."
-                            ),
+                            "cr_fe_last_error": order._cr_build_reference_pending_message(),
                             "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5),
                         }
                     )
@@ -2019,10 +2043,7 @@ class PosOrder(models.Model):
                     {
                         "cr_fe_status": "error_retry",
                         "cr_fe_error_code": "reference_pending",
-                        "cr_fe_last_error": _(
-                            "La nota de crédito se enviará cuando exista la referencia "
-                            "(tipo, número y fecha del documento original)."
-                        ),
+                        "cr_fe_last_error": self._cr_build_reference_pending_message(),
                         "cr_fe_next_try": fields.Datetime.now() + timedelta(minutes=5),
                     }
                 )
