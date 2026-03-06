@@ -1563,6 +1563,9 @@ class PosOrder(models.Model):
             "cr_fe_clave": clave,
             "cr_fe_xml_attachment_id": result.get("xml_attachment_id") or self.cr_fe_xml_attachment_id.id,
             "cr_fe_error_code": False,
+            "cr_fe_last_error": False,
+            # Ensure cron/manual checks can send immediately once references become available.
+            "cr_fe_next_try": fields.Datetime.now(),
         }
         try:
             self.write(values)
