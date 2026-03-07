@@ -244,6 +244,37 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(origin_invoice, ticket_move)
 
+    def test_prefill_reference_from_origin_order_copies_reference_fields(self):
+        RefundOrder = self.env["pos.order"]
+        origin_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "ORIGIN/REF/001",
+                "cr_fe_reference_document_type": "01",
+                "cr_fe_reference_document_number": "50601010100000000000000100001010000000001123456789",
+                "cr_fe_reference_issue_date": fields.Date.today(),
+                "cr_fe_reference_code": "01",
+                "cr_fe_reference_reason": "Ajuste comercial",
+            }
+        )
+        refund_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/REF/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+            }
+        )
+
+        with patch.object(type(refund_order), "_cr_get_origin_order_for_refund", lambda self: origin_order):
+            refund_order._cr_prefill_reference_from_origin_order()
+
+        self.assertEqual(refund_order.cr_fe_reference_document_type, origin_order.cr_fe_reference_document_type)
+        self.assertEqual(refund_order.cr_fe_reference_document_number, origin_order.cr_fe_reference_document_number)
+        self.assertEqual(refund_order.cr_fe_reference_issue_date, origin_order.cr_fe_reference_issue_date)
+        self.assertEqual(refund_order.cr_fe_reference_code, origin_order.cr_fe_reference_code)
+        self.assertEqual(refund_order.cr_fe_reference_reason, origin_order.cr_fe_reference_reason)
+
     def test_get_refund_reference_data_detects_nc_by_refunded_lines(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
         order_line = self.env["pos.order.line"].new({"order_id": order.id})
