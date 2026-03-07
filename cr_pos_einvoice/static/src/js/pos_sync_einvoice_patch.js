@@ -95,6 +95,11 @@ const applyFeFields = (order, row) => {
         cr_fe_clave: firstDefined(row.cr_fe_clave, row.fp_external_id, order.cr_fe_clave),
         cr_fe_status: firstDefined(row.cr_fe_status, row.fp_api_state, row.fp_invoice_status, order.cr_fe_status),
         fp_payment_method: firstDefined(row.fp_payment_method, order.fp_payment_method),
+        cr_fe_reference_document_type: firstDefined(row.cr_fe_reference_document_type, order.cr_fe_reference_document_type),
+        cr_fe_reference_document_number: firstDefined(row.cr_fe_reference_document_number, order.cr_fe_reference_document_number),
+        cr_fe_reference_issue_date: firstDefined(row.cr_fe_reference_issue_date, order.cr_fe_reference_issue_date),
+        cr_fe_reference_code: firstDefined(row.cr_fe_reference_code, order.cr_fe_reference_code),
+        cr_fe_reference_reason: firstDefined(row.cr_fe_reference_reason, order.cr_fe_reference_reason),
     };
 
     Object.assign(order, values);
@@ -153,7 +158,7 @@ patch(PosStore.prototype, {
                 const records = await orm.call(
                     "pos.order",
                     "search_read",
-                    [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
+                    [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method", "cr_fe_reference_document_type", "cr_fe_reference_document_number", "cr_fe_reference_issue_date", "cr_fe_reference_code", "cr_fe_reference_reason"]],
                     { limit: 1 }
                 );
                 result = records && records[0] ? records[0] : null;
