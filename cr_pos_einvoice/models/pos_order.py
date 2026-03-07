@@ -800,6 +800,7 @@ class PosOrder(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
+        records._cr_prefill_reference_from_origin_order()
         records._cr_capture_reference_snapshot()
         return records
 
@@ -1093,6 +1094,63 @@ class PosOrder(models.Model):
     def _cr_capture_reference_on_payment(self):
         """Persist NC reference snapshot at payment time for deterministic XML build."""
         self._cr_capture_reference_snapshot()
+
+    def _cr_prefill_reference_from_origin_order(self):
+        """Copy reference fields from origin POS order as soon as a refund order exists.
+
+        This covers refund creation flows where POS generates the refund order first
+        and FE dispatch can start before additional writes happen.
+        """
+        for order in self:
+            if not order._cr_is_credit_note_order():
+                continue
+
+            # Never overwrite manually provided values on the refund itself.
+            existing_snapshot = order._cr_get_manual_reference_data()
+            if all(existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")):
+                continue
+
+            origin_order = order._cr_get_origin_order_for_refund()
+            if not origin_order:
+                continue
+
+            origin_vals = origin_order.sudo().with_context(prefetch_fields=False).read(
+                [
+                    "cr_fe_reference_document_type",
+                    "cr_fe_reference_document_number",
+                    "cr_fe_reference_issue_date",
+                    "cr_fe_reference_code",
+                    "cr_fe_reference_reason",
+                ],
+                load=False,
+            )[0]
+
+            if not all(
+                origin_vals.get(field_name)
+                for field_name in (
+                    "cr_fe_reference_document_type",
+                    "cr_fe_reference_document_number",
+                    "cr_fe_reference_issue_date",
+                )
+            ):
+                continue
+
+            vals = {}
+            if not existing_snapshot.get("document_type"):
+                vals["cr_fe_reference_document_type"] = origin_vals.get("cr_fe_reference_document_type")
+            if not existing_snapshot.get("number"):
+                vals["cr_fe_reference_document_number"] = origin_vals.get("cr_fe_reference_document_number")
+            if not existing_snapshot.get("issue_date"):
+                vals["cr_fe_reference_issue_date"] = origin_vals.get("cr_fe_reference_issue_date")
+            if not order.cr_fe_reference_code and origin_vals.get("cr_fe_reference_code"):
+                vals["cr_fe_reference_code"] = origin_vals.get("cr_fe_reference_code")
+            if not order.cr_fe_reference_reason and origin_vals.get("cr_fe_reference_reason"):
+                vals["cr_fe_reference_reason"] = origin_vals.get("cr_fe_reference_reason")
+
+            if vals:
+                # Avoid unintended immediate autosend side effects while creating refunds;
+                # FE dispatch will continue through the regular post-payment pipeline.
+                order.sudo().with_context(cr_fe_skip_autosend_reference=True).write(vals)
 
     def _cr_capture_reference_snapshot(self):
         """Persist NC FE reference data as soon as the refund has enough source metadata."""
