@@ -1280,6 +1280,7 @@ class PosOrder(models.Model):
             "fp_reference_issue_date",
             "fp_reference_document_date",
             "fp_reference_date",
+            "reference_issue_date",
             "reference_document_date",
             "reference_date",
             "reversed_entry_date",
