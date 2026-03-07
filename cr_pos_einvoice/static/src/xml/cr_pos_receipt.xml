@@ -13,7 +13,8 @@
                     <div class="cr-lines-head cr-small">
                         <span class="cr-col-qty">Cant</span>
                         <span class="cr-col-desc">Descripción</span>
-                        <span class="cr-col-amt cr-right">Importe</span>
+                        <span class="cr-col-price-head cr-right">Precio*</span>
+                        <span class="cr-col-tax-head cr-right">IVA</span>
                     </div>
                 </t>
 

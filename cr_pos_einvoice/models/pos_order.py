@@ -822,6 +822,27 @@ class PosOrder(models.Model):
         if not order_ids:
             return result
 
+        orders = self.browse(order_ids).exists()
+
+        # Enterprise UX: print-safe response must include FE identifiers whenever
+        # a ticket is legally emitable. Run deterministic TE preparation before
+        # serializing the payload so POS receipt avoids "Pendiente" on first print.
+        orders_to_prepare = orders.filtered(
+            lambda o: o._cr_should_emit_ticket()
+            and not o._cr_should_delay_credit_note_xml()
+            and (not o.cr_fe_consecutivo or not o.cr_fe_clave)
+        )
+        for order in orders_to_prepare:
+            try:
+                with self.env.cr.savepoint():
+                    order._cr_prepare_te_document()
+            except Exception as error:  # noqa: BLE001
+                self._logger.info(
+                    "Unable to enrich FE identifiers in create_from_ui response for POS order %s: %s",
+                    order.id,
+                    error,
+                )
+
         fields_to_read = [
             "id",
             "cr_fe_document_type",
@@ -832,8 +853,7 @@ class PosOrder(models.Model):
         ]
         order_data = {
             row["id"]: row
-            for row in self.browse(order_ids)
-            .exists()
+            for row in orders
             .with_context(prefetch_fields=False)
             .read(fields_to_read)
         }
@@ -868,6 +888,10 @@ class PosOrder(models.Model):
         else:
             return {}
 
+        allowed_companies = self.env.user.company_ids.ids
+        if allowed_companies:
+            domain = ["&", ("company_id", "in", allowed_companies)] + domain
+
         order = self.search(domain, limit=1)
         if not order:
             return {}
@@ -880,7 +904,8 @@ class PosOrder(models.Model):
         if should_prepare_identifiers:
             try:
                 with self.env.cr.savepoint():
-                    order._cr_prepare_te_document()
+                    order.sudo().with_company(order.company_id)._cr_prepare_te_document()
+                    order.invalidate_recordset(["cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status"])
             except Exception as error:  # noqa: BLE001
                 self._logger.info(
                     "Unable to prepare FE identifiers for POS receipt order %s: %s",
