@@ -117,6 +117,17 @@ const isReceiptScreen = (screen) => {
     return firstDefined(screen.name, screen.component?.name, screen.constructor?.name) === "ReceiptScreen";
 };
 
+const getReceiptOrderFromProps = (props) =>
+    firstDefined(
+        props?.order,
+        props?.data?.order,
+        props?.receipt?.order,
+        props?.orderReceipt?.order,
+        props?.order_receipt?.order,
+        props?.currentOrder,
+        props?.data?.currentOrder
+    ) || null;
+
 const needsFeWait = (values) => !hasRequiredFeData(values);
 
 const getOrmService = (store) =>
@@ -177,11 +188,13 @@ patch(PosStore.prototype, {
 
     async showScreen(screen, props) {
         const activeOrder = this.getOrder ? this.getOrder() : this.selectedOrder;
+        const receiptOrder = isReceiptScreen(screen) ? getReceiptOrderFromProps(props) : null;
+        const targetOrder = receiptOrder || activeOrder;
         const feEnabled = Boolean(
             firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled)
         );
-        if (isReceiptScreen(screen) && activeOrder && (needsFeWait(activeOrder) || (feEnabled && !hasRequiredFeData(activeOrder)))) {
-            await this._crWaitForFeFields(activeOrder, activeOrder);
+        if (isReceiptScreen(screen) && targetOrder && (needsFeWait(targetOrder) || (feEnabled && !hasRequiredFeData(targetOrder)))) {
+            await this._crWaitForFeFields(targetOrder, targetOrder);
         }
         if (super.showScreen) {
             return super.showScreen(...arguments);
