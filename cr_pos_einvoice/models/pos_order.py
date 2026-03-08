@@ -813,7 +813,10 @@ class PosOrder(models.Model):
         records._cr_prefill_reference_from_origin_order()
         records._cr_capture_reference_snapshot()
         if draft:
-            return result
+            # Refund orders are often created in draft first ("Devolver") and
+            # finalized later. Return FE reference fields immediately so OWL POS
+            # can display/print the NC linkage without waiting for payment.
+            return self._cr_attach_fe_fields_to_ui_result(result)
         records._cr_capture_reference_on_payment()
         records._cr_process_after_payment()
         return self._cr_attach_fe_fields_to_ui_result(result)
