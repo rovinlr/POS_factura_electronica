@@ -10,15 +10,6 @@
             <t t-set="orderlines" t-value="(data &amp;&amp; (data.orderlines || data.order_lines || data.lines)) || (props &amp;&amp; (props.orderlines || props.order_lines || props.lines)) || []"/>
 
             <div class="cr-fe-extra">
-                <div class="cr-lines-head cr-small">
-                        <span class="cr-col-qty">Cant</span>
-                        <span class="cr-col-desc">Descripción</span>
-                        <span class="cr-col-price-head cr-right">Precio*</span>
-                        <span class="cr-col-tax-head cr-right">IVA</span>
-                    </div>
-
-                <div class="cr-divider"/>
-
                 <t t-if="partner.name || partner.vat || partner.email || partner.phone || einvoice.receptor_id">
                     <div class="cr-block cr-small">
                         <div class="cr-title">Datos del receptor</div>
