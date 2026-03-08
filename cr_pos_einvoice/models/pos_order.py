@@ -807,9 +807,13 @@ class PosOrder(models.Model):
     @api.model
     def create_from_ui(self, orders, draft=False):
         result = super().create_from_ui(orders, draft=draft)
+        records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
+        # Refund references must be available as soon as the order is created,
+        # even when the POS keeps it in draft before registering a payment.
+        records._cr_prefill_reference_from_origin_order()
+        records._cr_capture_reference_snapshot()
         if draft:
             return result
-        records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
         records._cr_capture_reference_on_payment()
         records._cr_process_after_payment()
         return self._cr_attach_fe_fields_to_ui_result(result)
