@@ -87,6 +87,11 @@ if (PosOrder?.prototype) {
         json.cr_fe_clave = this.cr_fe_clave || null;
         json.cr_fe_status = this.cr_fe_status || null;
         json.fp_payment_method = this.fp_payment_method || null;
+        json.cr_fe_reference_document_type = this.cr_fe_reference_document_type || null;
+        json.cr_fe_reference_document_number = this.cr_fe_reference_document_number || null;
+        json.cr_fe_reference_issue_date = this.cr_fe_reference_issue_date || null;
+        json.cr_fe_reference_code = this.cr_fe_reference_code || null;
+        json.cr_fe_reference_reason = this.cr_fe_reference_reason || null;
         return json;
     },
     init_from_JSON(json) {
@@ -98,6 +103,11 @@ if (PosOrder?.prototype) {
         this.cr_fe_clave = json.cr_fe_clave || null;
         this.cr_fe_status = json.cr_fe_status || null;
         this.fp_payment_method = json.fp_payment_method || null;
+        this.cr_fe_reference_document_type = json.cr_fe_reference_document_type || null;
+        this.cr_fe_reference_document_number = json.cr_fe_reference_document_number || null;
+        this.cr_fe_reference_issue_date = json.cr_fe_reference_issue_date || null;
+        this.cr_fe_reference_code = json.cr_fe_reference_code || null;
+        this.cr_fe_reference_reason = json.cr_fe_reference_reason || null;
     },
     setup(vals) {
         if (super.setup) {
@@ -109,6 +119,11 @@ if (PosOrder?.prototype) {
         this.cr_fe_clave = firstDefined(source.cr_fe_clave, this.cr_fe_clave) || null;
         this.cr_fe_status = firstDefined(source.cr_fe_status, this.cr_fe_status) || null;
         this.fp_payment_method = firstDefined(source.fp_payment_method, this.fp_payment_method) || null;
+        this.cr_fe_reference_document_type = firstDefined(source.cr_fe_reference_document_type, this.cr_fe_reference_document_type) || null;
+        this.cr_fe_reference_document_number = firstDefined(source.cr_fe_reference_document_number, this.cr_fe_reference_document_number) || null;
+        this.cr_fe_reference_issue_date = firstDefined(source.cr_fe_reference_issue_date, this.cr_fe_reference_issue_date) || null;
+        this.cr_fe_reference_code = firstDefined(source.cr_fe_reference_code, this.cr_fe_reference_code) || null;
+        this.cr_fe_reference_reason = firstDefined(source.cr_fe_reference_reason, this.cr_fe_reference_reason) || null;
     },
     export_for_printing() {
         const receipt = super.export_for_printing ? super.export_for_printing(...arguments) : {};
@@ -153,6 +168,13 @@ if (PosOrder?.prototype) {
             clave: this.cr_fe_clave || null,
             status: this.cr_fe_status || null,
             payment_method: this.fp_payment_method || null,
+            reference: {
+                document_type: this.cr_fe_reference_document_type || null,
+                number: this.cr_fe_reference_document_number || null,
+                issue_date: this.cr_fe_reference_issue_date || null,
+                code: this.cr_fe_reference_code || null,
+                reason: this.cr_fe_reference_reason || null,
+            },
             receptor_id:
                 normalizeText(
                     firstDefined(

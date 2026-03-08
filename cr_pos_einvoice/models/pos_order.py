@@ -851,6 +851,11 @@ class PosOrder(models.Model):
             "cr_fe_clave",
             "cr_fe_status",
             "fp_payment_method",
+            "cr_fe_reference_document_type",
+            "cr_fe_reference_document_number",
+            "cr_fe_reference_issue_date",
+            "cr_fe_reference_code",
+            "cr_fe_reference_reason",
         ]
         order_data = {
             row["id"]: row
@@ -922,47 +927,49 @@ class PosOrder(models.Model):
             "cr_fe_clave": order.cr_fe_clave,
             "cr_fe_status": order.cr_fe_status,
             "fp_payment_method": order.fp_payment_method,
+            "cr_fe_reference_document_type": order.cr_fe_reference_document_type,
+            "cr_fe_reference_document_number": order.cr_fe_reference_document_number,
+            "cr_fe_reference_issue_date": order.cr_fe_reference_issue_date,
+            "cr_fe_reference_code": order.cr_fe_reference_code,
+            "cr_fe_reference_reason": order.cr_fe_reference_reason,
         }
 
-        def _process_order(self, order, *args, **kwargs):
-            """Process a POS order coming from UI sync.
+    @api.model
+    def _process_order(self, order, *args, **kwargs):
+        """Process a POS order coming from UI sync.
 
-            Odoo and optional addons (e.g. pos_online_payment) call this method with
-            different signatures across versions:
+        Odoo and optional addons (e.g. pos_online_payment) call this method with
+        different signatures across versions:
 
-            - _process_order(order, existing_order=False)
-            - _process_order(order, draft, existing_order=False)
+        - _process_order(order, existing_order=False)
+        - _process_order(order, draft, existing_order=False)
 
-            This override keeps compatibility while ensuring FE flows always see
-            persisted NC reference data before building XML.
-            """
-            draft = False
-            existing_order = False
+        This override keeps compatibility while ensuring FE flows always see
+        persisted NC reference data before building XML.
+        """
+        draft = False
+        existing_order = False
 
-            if args:
-                if isinstance(args[0], bool):
-                    draft = args[0]
-                    if len(args) > 1:
-                        existing_order = args[1]
-                else:
-                    existing_order = args[0]
+        if args:
+            if isinstance(args[0], bool):
+                draft = args[0]
+                if len(args) > 1:
+                    existing_order = args[1]
+            else:
+                existing_order = args[0]
 
+        try:
+            result = super()._process_order(order, *args, **kwargs)
+        except TypeError:
+            # Fallback for older/newer signatures.
             try:
-                result = super()._process_order(order, *args, **kwargs)
+                result = super()._process_order(order, draft, existing_order, **kwargs)
             except TypeError:
-                # Fallback for older/newer signatures.
-                try:
-                    result = super()._process_order(order, draft, existing_order, **kwargs)
-                except TypeError:
-                    result = super()._process_order(order, draft, **kwargs)
+                result = super()._process_order(order, draft, **kwargs)
 
-            if draft or not result:
-                return result
-
-            order_record = self.browse(result).exists() if isinstance(result, int) else result
-            order_record._cr_capture_reference_on_payment()
-            order_record._cr_process_after_payment()
+        if draft or not result:
             return result
+
         order_record = self.browse(result).exists() if isinstance(result, int) else result
         # POS frontend payments reach this path directly and may skip
         # `action_pos_order_paid`; persist NC references before FE preparation

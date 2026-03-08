@@ -7,17 +7,15 @@
             <t t-set="data" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
             <t t-set="einvoice" t-value="(data &amp;&amp; data.einvoice) || {}"/>
             <t t-set="partner" t-value="(data &amp;&amp; data.partner) || {}"/>
-            <t t-set="orderlines" t-value="(data &amp;&amp; (data.orderlines || data.order_lines || data.lines)) || []"/>
+            <t t-set="orderlines" t-value="(data &amp;&amp; (data.orderlines || data.order_lines || data.lines)) || (props &amp;&amp; (props.orderlines || props.order_lines || props.lines)) || []"/>
 
             <div class="cr-fe-extra">
-                <t t-if="orderlines.length">
-                    <div class="cr-lines-head cr-small">
+                <div class="cr-lines-head cr-small">
                         <span class="cr-col-qty">Cant</span>
                         <span class="cr-col-desc">Descripción</span>
                         <span class="cr-col-price-head cr-right">Precio*</span>
                         <span class="cr-col-tax-head cr-right">IVA</span>
                     </div>
-                </t>
 
                 <div class="cr-divider"/>
 
@@ -42,6 +40,20 @@
                         <span class="cr-mono cr-wrap"><t t-esc="einvoice.clave || data.cr_fe_clave || 'Pendiente'"/></span>
                     </div>
                 </div>
+
+
+
+                <t t-if="(einvoice.document_type === 'nc' || data.cr_fe_document_type === 'nc') and (einvoice.reference &amp;&amp; (einvoice.reference.number || einvoice.reference.document_type || einvoice.reference.issue_date))">
+                    <div class="cr-divider"/>
+                    <div class="cr-block cr-small">
+                        <div class="cr-title">Referencia NC</div>
+                        <div t-if="einvoice.reference.document_type"><strong>Tipo:</strong> <t t-esc="einvoice.reference.document_type"/></div>
+                        <div t-if="einvoice.reference.number"><strong>Número:</strong> <span class="cr-mono cr-wrap"><t t-esc="einvoice.reference.number"/></span></div>
+                        <div t-if="einvoice.reference.issue_date"><strong>Fecha:</strong> <t t-esc="einvoice.reference.issue_date"/></div>
+                        <div t-if="einvoice.reference.code"><strong>Código:</strong> <t t-esc="einvoice.reference.code"/></div>
+                        <div t-if="einvoice.reference.reason"><strong>Razón:</strong> <t t-esc="einvoice.reference.reason"/></div>
+                    </div>
+                </t>
 
                 <div class="cr-divider"/>
                 <div class="cr-center cr-small">
