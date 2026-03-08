@@ -4,7 +4,9 @@
     <!-- Ensure product line header is always rendered for thermal readability. -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
         <xpath expr="//div[hasclass('orderline')][1]" position="before">
-            <t t-if="receipt and receipt.orderlines and receipt.orderlines.length">
+            <t t-set="headerData" t-value="(props &amp;&amp; (props.data || props.receipt || props.order_receipt || props.orderReceipt || props)) || {}"/>
+            <t t-set="headerLines" t-value="(headerData &amp;&amp; (headerData.orderlines || headerData.order_lines || headerData.lines)) || []"/>
+            <t t-if="headerLines.length">
                 <div class="cr-product-lines-head">
                     <span class="cr-product-col-qty">Cant.</span>
                     <span class="cr-product-col-name">Producto</span>
