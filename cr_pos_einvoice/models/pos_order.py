@@ -1283,13 +1283,14 @@ class PosOrder(models.Model):
         origin_doc_type = (origin_order.cr_fe_document_type if origin_order else False) or (
             "fe" if origin_invoice else False
         )
-        reference_doc_type = {
+        fallback_doc_type = {
             "fe": "01",  # Factura Electrónica
             "te": "04",  # Tiquete Electrónico
             "nc": "03",  # Nota de Crédito
         }.get(origin_doc_type, "01")
 
-        reference_number = (
+        reference_doc_type = reference_data.get("document_type") or fallback_doc_type
+        reference_number = reference_data.get("number") or (
             (origin_order.cr_fe_clave if origin_order else False)
             or (origin_order.cr_fe_consecutivo if origin_order else False)
             or (getattr(origin_invoice, "l10n_cr_clave", False) if origin_invoice else False)
@@ -1301,17 +1302,17 @@ class PosOrder(models.Model):
         if not reference_number:
             return {}
 
-        reference_date = (
+        reference_date = reference_data.get("issue_date") or (
             (origin_order.date_order.date() if origin_order and origin_order.date_order else False)
             or (origin_invoice.invoice_date if origin_invoice else False)
             or fields.Date.context_today(self)
         )
-        reference_code = (
+        reference_code = reference_data.get("code") or (
             (getattr(origin_order, "fp_reference_code", False) if origin_order else False)
             or (getattr(origin_invoice, "fp_reference_code", False) if origin_invoice else False)
             or "01"
         )
-        reference_reason = (
+        reference_reason = reference_data.get("reason") or (
             (getattr(origin_order, "fp_reference_reason", False) if origin_order else False)
             or (getattr(origin_invoice, "fp_reference_reason", False) if origin_invoice else False)
             or _("Devolución de mercadería")

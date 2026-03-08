@@ -502,6 +502,55 @@ class TestPosEInvoice(TransactionCase):
             self.assertEqual(move.reversed_entry_id, origin_invoice)
 
 
+    def test_build_refund_reference_values_prioritizes_stored_pos_reference_fields(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "fe",
+                "cr_fe_clave": "50601010100000000000000100001010000000001111111111",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        origin_invoice = self.env["account.move"].new(
+            {
+                "move_type": "out_invoice",
+                "name": "FAC-ORIG",
+                "invoice_date": fields.Date.from_string("2026-01-05"),
+            }
+        )
+        manual_issue_date = fields.Date.from_string("2026-02-27")
+        reference_data = {
+            "document_type": "04",
+            "number": "50601010100000000000000100001040000000001123456789",
+            "issue_date": manual_issue_date,
+            "code": "02",
+            "reason": "Anulación parcial",
+        }
+
+        with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: reference_data), patch.object(
+            type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order
+        ), patch.object(type(order), "_cr_get_origin_invoice_for_refund", lambda self: origin_invoice):
+            values = order._cr_build_refund_reference_values()
+
+        move_fields = self.env["account.move"]._fields
+        for field_name in ("fp_reference_document_type", "reference_document_type", "l10n_cr_reference_document_type"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "04")
+        for field_name in ("fp_reference_document_number", "reference_document_number", "l10n_cr_reference_document_number"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), reference_data["number"])
+        for field_name in ("fp_reference_issue_date", "reference_issue_date", "l10n_cr_reference_issue_date"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), manual_issue_date)
+        for field_name in ("fp_reference_code", "reference_code", "l10n_cr_reference_code"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "02")
+        for field_name in ("fp_reference_reason", "reference_reason", "l10n_cr_reference_reason"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "Anulación parcial")
+
+
     def test_send_pending_te_marks_reference_pending_when_prepare_raises_usererror(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "cr_fe_status": "pending", "amount_total": -10.0})
         captured = {}
