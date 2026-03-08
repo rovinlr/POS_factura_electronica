@@ -1155,7 +1155,9 @@ class PosOrder(models.Model):
                 vals["cr_fe_reference_reason"] = origin_vals.get("cr_fe_reference_reason")
 
             if vals:
-                order.sudo().write(vals)
+                # Avoid unintended immediate autosend side effects while creating refunds;
+                # FE dispatch will continue through the regular post-payment pipeline.
+                order.sudo().with_context(cr_fe_skip_autosend_reference=True).write(vals)
 
     def _cr_capture_reference_snapshot(self):
         """Persist NC FE reference data as soon as the refund has enough source metadata."""
