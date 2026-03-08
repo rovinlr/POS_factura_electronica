@@ -35,3 +35,8 @@
 .cr-col-price-head { width: 16%; white-space: nowrap; }
 .cr-col-tax-head { width: 10%; white-space: nowrap; }
 
+
+.cr-product-lines-head { display: flex; gap: 4px; font-weight: 700; border-bottom: 1px solid #000; padding: 2px 0 3px; margin-bottom: 2px; }
+.cr-product-col-qty { width: 12%; }
+.cr-product-col-name { width: 70%; word-break: break-word; overflow-wrap: anywhere; }
+.cr-product-col-total { width: 18%; text-align: right; white-space: nowrap; }
