@@ -275,6 +275,34 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(refund_order.cr_fe_reference_code, origin_order.cr_fe_reference_code)
         self.assertEqual(refund_order.cr_fe_reference_reason, origin_order.cr_fe_reference_reason)
 
+
+    def test_prefill_reference_from_origin_order_derives_from_origin_fe_fields(self):
+        RefundOrder = self.env["pos.order"]
+        origin_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "ORIGIN/REF/FE/001",
+                "cr_fe_document_type": "te",
+                "cr_fe_clave": "50601010100000000000000100001040000000001123456789",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        refund_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/REF/FE/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+            }
+        )
+
+        with patch.object(type(refund_order), "_cr_get_origin_order_for_refund", lambda self: origin_order):
+            refund_order._cr_prefill_reference_from_origin_order()
+
+        self.assertEqual(refund_order.cr_fe_reference_document_type, "04")
+        self.assertEqual(refund_order.cr_fe_reference_document_number, origin_order.cr_fe_clave)
+        self.assertEqual(refund_order.cr_fe_reference_issue_date, origin_order.date_order.date())
+
     def test_prefill_reference_from_origin_order_enables_refund_reference_data(self):
         refund_order = self.env["pos.order"].new(
             {
