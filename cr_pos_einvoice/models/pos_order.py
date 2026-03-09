@@ -1130,6 +1130,9 @@ class PosOrder(models.Model):
 
             origin_vals = origin_order.sudo().with_context(prefetch_fields=False).read(
                 [
+                    "cr_fe_document_type",
+                    "cr_fe_clave",
+                    "date_order",
                     "cr_fe_reference_document_type",
                     "cr_fe_reference_document_number",
                     "cr_fe_reference_issue_date",
@@ -1139,23 +1142,34 @@ class PosOrder(models.Model):
                 load=False,
             )[0]
 
-            if not all(
-                origin_vals.get(field_name)
-                for field_name in (
-                    "cr_fe_reference_document_type",
-                    "cr_fe_reference_document_number",
-                    "cr_fe_reference_issue_date",
-                )
-            ):
+            resolved_document_type = origin_vals.get("cr_fe_reference_document_type")
+            resolved_number = origin_vals.get("cr_fe_reference_document_number")
+            resolved_issue_date = origin_vals.get("cr_fe_reference_issue_date")
+
+            # Refund origin orders (FE/TE) usually do not store NC-style
+            # `cr_fe_reference_*`; derive a deterministic snapshot from their
+            # emitted FE metadata when required.
+            if not resolved_document_type:
+                resolved_document_type = {
+                    "fe": "01",
+                    "te": "04",
+                    "nc": "03",
+                }.get(origin_vals.get("cr_fe_document_type"), False)
+            if not resolved_number:
+                resolved_number = origin_vals.get("cr_fe_clave")
+            if not resolved_issue_date and origin_vals.get("date_order"):
+                resolved_issue_date = origin_vals["date_order"].date()
+
+            if not all((resolved_document_type, resolved_number, resolved_issue_date)):
                 continue
 
             vals = {}
             if not existing_snapshot.get("document_type"):
-                vals["cr_fe_reference_document_type"] = origin_vals.get("cr_fe_reference_document_type")
+                vals["cr_fe_reference_document_type"] = resolved_document_type
             if not existing_snapshot.get("number"):
-                vals["cr_fe_reference_document_number"] = origin_vals.get("cr_fe_reference_document_number")
+                vals["cr_fe_reference_document_number"] = resolved_number
             if not existing_snapshot.get("issue_date"):
-                vals["cr_fe_reference_issue_date"] = origin_vals.get("cr_fe_reference_issue_date")
+                vals["cr_fe_reference_issue_date"] = resolved_issue_date
             if not order.cr_fe_reference_code and origin_vals.get("cr_fe_reference_code"):
                 vals["cr_fe_reference_code"] = origin_vals.get("cr_fe_reference_code")
             if not order.cr_fe_reference_reason and origin_vals.get("cr_fe_reference_reason"):
