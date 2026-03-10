@@ -49,7 +49,7 @@
 
 
 
-                <t t-if="(einvoice.document_type === 'nc' || data.cr_fe_document_type === 'nc') and (einvoice.reference &amp;&amp; (einvoice.reference.number || einvoice.reference.document_type || einvoice.reference.issue_date))">
+                <t t-if="(einvoice.document_type === 'nc' || data.cr_fe_document_type === 'nc') &amp;&amp; (einvoice.reference &amp;&amp; (einvoice.reference.number || einvoice.reference.document_type || einvoice.reference.issue_date))">
                     <div class="cr-divider"/>
                     <div class="cr-block cr-small">
                         <div class="cr-title">Referencia NC</div>
