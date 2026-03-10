@@ -994,6 +994,12 @@ class PosOrder(models.Model):
         manual_reference = self._cr_extract_manual_reference_from_ui(ui_order)
         if manual_reference:
             fields_vals.update(manual_reference)
+        elif fields_vals.get("amount_total", 0.0) < 0:
+            # Refunds created from POS should carry NC reference values from the
+            # origin order immediately, even before payment finalization.
+            auto_reference = self._cr_extract_refund_reference_from_ui(ui_order)
+            if auto_reference:
+                fields_vals.update(auto_reference)
         return fields_vals
 
     @api.model
@@ -1044,6 +1050,92 @@ class PosOrder(models.Model):
             if normalized:
                 return normalized
         return []
+
+    @api.model
+    def _cr_extract_refund_reference_from_ui(self, ui_order):
+        """Derive NC reference fields from refunded POS lines in UI payload."""
+        if not isinstance(ui_order, dict):
+            return {}
+
+        payload = ui_order.get("data", ui_order)
+        if not isinstance(payload, dict):
+            return {}
+
+        line_commands = payload.get("lines")
+        if not isinstance(line_commands, list):
+            return {}
+
+        refunded_line_ids = []
+        for command in line_commands:
+            if not isinstance(command, (list, tuple)) or len(command) < 3:
+                continue
+            line_values = command[2]
+            if not isinstance(line_values, dict):
+                continue
+
+            refunded_value = line_values.get("refunded_orderline_id")
+            if isinstance(refunded_value, (list, tuple)):
+                refunded_value = refunded_value[0] if refunded_value else False
+
+            try:
+                refunded_id = int(refunded_value)
+            except (TypeError, ValueError):
+                continue
+
+            if refunded_id > 0 and refunded_id not in refunded_line_ids:
+                refunded_line_ids.append(refunded_id)
+
+        if not refunded_line_ids:
+            return {}
+
+        line_data = self.env["pos.order.line"].sudo().with_context(prefetch_fields=False).search_read(
+            [("id", "in", refunded_line_ids)], ["id", "order_id"], limit=1
+        )
+        if not line_data or not line_data[0].get("order_id"):
+            return {}
+
+        origin_order_id = line_data[0]["order_id"][0]
+        if not origin_order_id:
+            return {}
+
+        origin_order_data = self.sudo().with_context(prefetch_fields=False).search_read(
+            [("id", "=", origin_order_id)],
+            [
+                "cr_fe_document_type",
+                "cr_fe_clave",
+                "date_order",
+                "cr_fe_reference_document_type",
+                "cr_fe_reference_document_number",
+                "cr_fe_reference_issue_date",
+                "cr_fe_reference_code",
+                "cr_fe_reference_reason",
+            ],
+            limit=1,
+        )
+        if not origin_order_data:
+            return {}
+
+        origin_vals = origin_order_data[0]
+        document_type = origin_vals.get("cr_fe_reference_document_type") or {
+            "fe": "01",
+            "te": "04",
+            "nc": "03",
+        }.get(origin_vals.get("cr_fe_document_type"), False)
+        number = origin_vals.get("cr_fe_reference_document_number") or origin_vals.get("cr_fe_clave")
+        issue_date = origin_vals.get("cr_fe_reference_issue_date")
+        if not issue_date and origin_vals.get("date_order"):
+            issue_date = fields.Date.to_date(origin_vals["date_order"])
+
+        if not all((document_type, number, issue_date)):
+            return {}
+
+        return {
+            "cr_fe_reference_document_type": document_type,
+            "cr_fe_reference_document_number": number,
+            "cr_fe_reference_issue_date": fields.Date.to_date(issue_date),
+            "cr_fe_reference_code": origin_vals.get("cr_fe_reference_code") or "01",
+            "cr_fe_reference_reason": origin_vals.get("cr_fe_reference_reason") or _("Devolución de mercadería"),
+        }
 
     def _cr_normalize_other_charges(self, raw_charges):
         if not raw_charges:
