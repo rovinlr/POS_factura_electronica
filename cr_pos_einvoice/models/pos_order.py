@@ -991,15 +991,21 @@ class PosOrder(models.Model):
         charges = self._cr_extract_other_charges_from_ui(ui_order)
         if charges:
             fields_vals["cr_other_charges_json"] = json.dumps(charges)
+
+        auto_reference = self._cr_extract_refund_reference_from_ui(ui_order)
         manual_reference = self._cr_extract_manual_reference_from_ui(ui_order)
-        if manual_reference:
-            fields_vals.update(manual_reference)
-        elif fields_vals.get("amount_total", 0.0) < 0:
-            # Refunds created from POS should carry NC reference values from the
-            # origin order immediately, even before payment finalization.
-            auto_reference = self._cr_extract_refund_reference_from_ui(ui_order)
-            if auto_reference:
-                fields_vals.update(auto_reference)
+
+        if auto_reference or manual_reference:
+            # Merge strategy (Enterprise-safe): auto-derived refund reference provides
+            # a deterministic baseline and operator-provided values always override.
+            # This guarantees `code/reason` defaults are present even when UI sends
+            # only partial manual data (common in refund flows).
+            merged_reference = {**auto_reference, **manual_reference}
+            if merged_reference.get("cr_fe_reference_document_type") and merged_reference.get("cr_fe_reference_document_number") and merged_reference.get("cr_fe_reference_issue_date"):
+                merged_reference.setdefault("cr_fe_reference_code", "01")
+                merged_reference.setdefault("cr_fe_reference_reason", _("Devolución de mercadería"))
+            fields_vals.update(merged_reference)
+
         return fields_vals
 
     @api.model
