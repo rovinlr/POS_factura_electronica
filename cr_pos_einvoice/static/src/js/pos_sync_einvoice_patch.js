@@ -133,6 +133,15 @@ const needsFeWait = (values) => !hasRequiredFeData(values);
 const getOrmService = (store) =>
     firstDefined(store.orm, store.env?.services?.orm, store.pos?.env?.services?.orm, store.data?.orm);
 
+const getReceiptWaitConfig = (store) => {
+    const config = firstDefined(store.config, store.pos?.config, store.env?.pos?.config) || {};
+    return {
+        timeoutMs: Number(config.cr_fe_receipt_wait_timeout_ms) > 0 ? Number(config.cr_fe_receipt_wait_timeout_ms) : 6000,
+        intervalMs: Number(config.cr_fe_receipt_wait_interval_ms) > 0 ? Number(config.cr_fe_receipt_wait_interval_ms) : 600,
+    };
+};
+
+
 patch(PosStore.prototype, {
     async _crWaitForFeFields(order, row, options = {}) {
         const orm = getOrmService(this);
@@ -140,8 +149,9 @@ patch(PosStore.prototype, {
             return false;
         }
 
-        const timeoutMs = options.timeoutMs || 30000;
-        const intervalMs = options.intervalMs || 1000;
+        const defaults = getReceiptWaitConfig(this);
+        const timeoutMs = options.timeoutMs || defaults.timeoutMs;
+        const intervalMs = options.intervalMs || defaults.intervalMs;
         const startedAt = Date.now();
         const orderId = getOrderServerId(order, row);
         const orderRefs = getOrderReferences(order, row);
@@ -165,14 +175,24 @@ patch(PosStore.prototype, {
                     order_id: orderId || null,
                     references: orderRefs,
                 });
-            } catch {
-                const records = await orm.call(
-                    "pos.order",
-                    "search_read",
-                    [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method", "cr_fe_reference_document_type", "cr_fe_reference_document_number", "cr_fe_reference_issue_date", "cr_fe_reference_code", "cr_fe_reference_reason"]],
-                    { limit: 1 }
-                );
-                result = records && records[0] ? records[0] : null;
+            } catch (primaryError) {
+                try {
+                    const records = await orm.call(
+                        "pos.order",
+                        "search_read",
+                        [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method", "cr_fe_reference_document_type", "cr_fe_reference_document_number", "cr_fe_reference_issue_date", "cr_fe_reference_code", "cr_fe_reference_reason"]],
+                        { limit: 1 }
+                    );
+                    result = records && records[0] ? records[0] : null;
+                } catch (fallbackError) {
+                    console.warn("[cr_pos_einvoice] Unable to fetch FE fields for receipt", {
+                        primaryError,
+                        fallbackError,
+                        orderId,
+                        orderRefs,
+                    });
+                    return false;
+                }
             }
             if (result) {
                 applyFeFields(order, result);
@@ -194,7 +214,11 @@ patch(PosStore.prototype, {
             firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled)
         );
         if (isReceiptScreen(screen) && targetOrder && (needsFeWait(targetOrder) || (feEnabled && !hasRequiredFeData(targetOrder)))) {
-            await this._crWaitForFeFields(targetOrder, targetOrder);
+            try {
+                await this._crWaitForFeFields(targetOrder, targetOrder);
+            } catch (error) {
+                console.warn("[cr_pos_einvoice] Non-blocking FE wait failure on ReceiptScreen", error);
+            }
         }
         if (super.showScreen) {
             return super.showScreen(...arguments);
@@ -221,7 +245,11 @@ patch(PosStore.prototype, {
             for (const order of targetOrders) {
                 applyFeFields(order, row);
                 if (needsFeWait(row) || needsFeWait(order)) {
-                    await this._crWaitForFeFields(order, row);
+                    try {
+                        await this._crWaitForFeFields(order, row);
+                    } catch (error) {
+                        console.warn("[cr_pos_einvoice] Non-blocking FE wait failure after sync", error);
+                    }
                 }
             }
         }
