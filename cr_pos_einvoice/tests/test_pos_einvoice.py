@@ -675,6 +675,53 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(reference_data.get("code"), "02")
         self.assertEqual(reference_data.get("reason"), "Anulación parcial")
 
+
+    def test_order_fields_derives_refund_reference_from_ui_refunded_lines(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Refund UI 001",
+                "amount_total": -100.0,
+                "lines": [
+                    [0, 0, {"refunded_orderline_id": 321}],
+                ],
+            }
+        }
+        fake_origin_date = fields.Datetime.from_string("2026-02-27 15:45:00")
+
+        def _fake_line_search_read(_self, domain, fields_list, limit=0):
+            self.assertEqual(domain, [("id", "in", [321])])
+            self.assertIn("order_id", fields_list)
+            return [{"id": 321, "order_id": [77, "ORIGIN/001"]}]
+
+        def _fake_order_search_read(_self, domain, fields_list, limit=0):
+            self.assertEqual(domain, [("id", "=", 77)])
+            self.assertIn("cr_fe_clave", fields_list)
+            return [
+                {
+                    "cr_fe_document_type": "te",
+                    "cr_fe_clave": "50601010100000000000000100001040000000001123456789",
+                    "date_order": fake_origin_date,
+                    "cr_fe_reference_document_type": False,
+                    "cr_fe_reference_document_number": False,
+                    "cr_fe_reference_issue_date": False,
+                    "cr_fe_reference_code": False,
+                    "cr_fe_reference_reason": False,
+                }
+            ]
+
+        with patch.object(type(self.env["pos.order.line"]), "search_read", _fake_line_search_read), patch.object(
+            type(order_model), "search_read", _fake_order_search_read
+        ):
+            values = order_model._order_fields(ui_order)
+
+        self.assertEqual(values.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(values.get("cr_fe_reference_document_number"), "50601010100000000000000100001040000000001123456789")
+        self.assertEqual(values.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(values.get("cr_fe_reference_code"), "01")
+        self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+
     def test_order_fields_imports_manual_reference_from_ui_payload(self):
         order_model = self.env["pos.order"]
         ui_order = {
