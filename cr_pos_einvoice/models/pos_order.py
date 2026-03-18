@@ -2,6 +2,7 @@ import logging
 import base64
 import hashlib
 import json
+import re
 from collections import defaultdict
 from datetime import timedelta, datetime, date, time
 from lxml import etree
@@ -72,6 +73,7 @@ class PosOrder(models.Model):
     cr_fe_reference_issue_date = fields.Date(string="Fecha emisión referencia FE", copy=False)
     cr_fe_reference_code = fields.Char(string="Código referencia FE", copy=False)
     cr_fe_reference_reason = fields.Char(string="Razón referencia FE", copy=False)
+    cr_receipt_html = fields.Text(string="HTML Tiquete POS", copy=False)
     fp_document_type = fields.Selection(
         selection="_selection_fp_document_type",
         string="Tipo de comprobante FE",
@@ -819,13 +821,114 @@ class PosOrder(models.Model):
             }
         )
 
+    def _cr_pdf_attachment_name(self):
+        self.ensure_one()
+        order_name = (self.name or self.pos_reference or f"POS-{self.id}").replace("/", "-")
+        consecutivo = (self.cr_fe_consecutivo or "SIN_CONSECUTIVO").replace("/", "-")
+        return f"Ticket_{order_name}_{consecutivo}.pdf"
+
+    def _cr_get_existing_receipt_pdf_attachment(self):
+        self.ensure_one()
+        return self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "pos.order"),
+                ("res_id", "=", self.id),
+                ("mimetype", "=", "application/pdf"),
+                ("name", "like", f"Ticket_{(self.name or self.pos_reference or f'POS-{self.id}').replace('/', '-')}_%"),
+            ],
+            order="id desc",
+            limit=1,
+        )
+
+    def _cr_wrap_receipt_html_for_pdf(self):
+        self.ensure_one()
+        html = (self.cr_receipt_html or "").strip()
+        if not html:
+            return False
+        # Safety hardening: remove scripts and inline event handlers before wkhtmltopdf.
+        html = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", html, flags=re.IGNORECASE)
+        html = re.sub(r"\son[a-z]+\s*=\s*\"[^\"]*\"", "", html, flags=re.IGNORECASE)
+        html = re.sub(r"\son[a-z]+\s*=\s*'[^']*'", "", html, flags=re.IGNORECASE)
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'/>"
+            "<style>body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#111;} .pos-receipt{width:100%;}</style>"
+            "</head><body>%s</body></html>"
+        ) % html
+
+    def _cr_render_receipt_pdf_content(self):
+        self.ensure_one()
+        wrapped_html = self._cr_wrap_receipt_html_for_pdf()
+        if wrapped_html:
+            report_engine = self.env["ir.actions.report"].sudo()
+            return report_engine._run_wkhtmltopdf(
+                [wrapped_html],
+                landscape=False,
+                specific_paperformat_args={"margin_top": 6, "margin_bottom": 6, "margin_left": 4, "margin_right": 4},
+            )
+        fallback_attachment = self._cr_get_or_create_pdf_attachment()
+        if fallback_attachment and fallback_attachment.datas:
+            return base64.b64decode(fallback_attachment.datas)
+        return b""
+
+    def _cr_upsert_receipt_pdf_attachment(self, pdf_content):
+        self.ensure_one()
+        if not pdf_content:
+            return self.env["ir.attachment"]
+        filename = self._cr_pdf_attachment_name()
+        existing = self._cr_get_existing_receipt_pdf_attachment()
+        values = {
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(pdf_content),
+            "res_model": "pos.order",
+            "res_id": self.id,
+            "mimetype": "application/pdf",
+        }
+        if existing:
+            existing.write(values)
+            return existing
+        return self.env["ir.attachment"].create(values)
+
+    @api.model
+    def cr_pos_store_receipt_html(self, order_id, receipt_html):
+        order = self.browse(order_id).exists()
+        if not order:
+            return {"ok": False}
+        sanitized_html = (receipt_html or "").strip()
+        order.sudo().write({"cr_receipt_html": sanitized_html[:5_000_000]})
+        if order.cr_fe_status == "accepted":
+            order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
+        return {"ok": True}
+
+    @api.model
+    def cr_pos_generate_receipt_pdf_if_accepted(self, order_ids):
+        orders = self.browse(order_ids).exists()
+        for order in orders:
+            if order._cr_normalize_hacienda_status(order.cr_fe_status) != "accepted":
+                continue
+            try:
+                pdf_content = order._cr_render_receipt_pdf_content()
+                attachment = order._cr_upsert_receipt_pdf_attachment(pdf_content)
+                if attachment and order.cr_receipt_html:
+                    order.sudo().write({"cr_receipt_html": False})
+            except Exception:  # noqa: BLE001
+                order._logger.exception("Error generating accepted receipt PDF for POS order %s", order.id)
+        return True
+
     def _cr_get_email_attachments(self):
         self.ensure_one()
         attachments = self.env["ir.attachment"]
         for attachment in (self.cr_fe_xml_attachment_id, self.cr_fe_response_attachment_id):
             if attachment:
                 attachments |= attachment
-        pdf_attachment = self._cr_get_or_create_pdf_attachment()
+
+        # Prefer the FE-accepted receipt PDF linked directly to pos.order.
+        # If FE is accepted, force generation/upsert first so mail can include it.
+        if self._cr_normalize_hacienda_status(self.cr_fe_status) == "accepted":
+            self.cr_pos_generate_receipt_pdf_if_accepted([self.id])
+        pdf_attachment = self._cr_get_existing_receipt_pdf_attachment()
+        if not pdf_attachment:
+            pdf_attachment = self._cr_get_or_create_pdf_attachment()
         if pdf_attachment:
             attachments |= pdf_attachment
         return attachments
@@ -938,6 +1041,7 @@ class PosOrder(models.Model):
                         order.cr_fe_status == "accepted"
                         and not self.env.context.get("cr_fe_skip_email_delivery")
                     ):
+                        order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
                         order._cr_try_send_accepted_email()
 
                 # Response received (first time linked)
