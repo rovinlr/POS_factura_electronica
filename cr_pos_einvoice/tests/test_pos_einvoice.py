@@ -324,6 +324,26 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(reference_data.get("issue_date"), refund_order.cr_fe_reference_issue_date)
         self.assertFalse(refund_order._cr_should_delay_credit_note_xml())
 
+    def test_capture_reference_snapshot_fills_optional_reference_fields_when_required_are_present(self):
+        refund_order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/OPTIONAL/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+                "cr_fe_reference_document_type": "01",
+                "cr_fe_reference_document_number": "50601010100000000000000100001010000000001123456789",
+                "cr_fe_reference_issue_date": fields.Date.today(),
+                "cr_fe_reference_code": False,
+                "cr_fe_reference_reason": False,
+            }
+        )
+
+        refund_order._cr_capture_reference_snapshot()
+
+        self.assertEqual(refund_order.cr_fe_reference_code, "01")
+        self.assertEqual(refund_order.cr_fe_reference_reason, "Devolución de mercadería")
+
 
     def test_get_refund_reference_data_detects_nc_by_refunded_lines(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
