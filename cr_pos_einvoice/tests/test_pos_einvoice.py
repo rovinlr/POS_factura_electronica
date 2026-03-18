@@ -677,6 +677,31 @@ class TestPosEInvoice(TransactionCase):
         self.assertFalse(order._cr_is_marked_for_invoicing())
         self.assertTrue(order._cr_should_emit_ticket())
 
+    def test_generate_pos_order_invoice_disables_mail_flags_and_context(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        captured = {}
+
+        def _fake_parent_generate(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+            captured["context"] = dict(self.env.context)
+            return "ok"
+
+        with patch("odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice", _fake_parent_generate):
+            result = order._generate_pos_order_invoice(
+                send_email=True,
+                mail_invoice=True,
+                send_and_print_values={"send_mail": True, "send_email": True},
+            )
+
+        self.assertEqual(result, "ok")
+        self.assertFalse(captured["kwargs"]["send_email"])
+        self.assertFalse(captured["kwargs"]["mail_invoice"])
+        self.assertFalse(captured["kwargs"]["send_and_print_values"]["send_mail"])
+        self.assertFalse(captured["kwargs"]["send_and_print_values"]["send_email"])
+        self.assertFalse(captured["context"]["mail_notify_force_send"])
+        self.assertTrue(captured["context"]["mail_notify_noemail"])
+        self.assertTrue(captured["context"]["skip_invoice_send"])
+
 
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
