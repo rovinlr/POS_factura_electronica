@@ -64,6 +64,9 @@ class PosOrder(models.Model):
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
     cr_fe_last_error = fields.Text(string="Último error FE", copy=False)
     cr_fe_last_send_date = fields.Datetime(string="Último envío FE", copy=False)
+    cr_fe_email_sent = fields.Boolean(string="Correo FE enviado", default=False, copy=False, tracking=True)
+    cr_fe_email_sent_date = fields.Datetime(string="Fecha envío correo FE", copy=False, tracking=True)
+    cr_fe_email_error = fields.Text(string="Error envío correo FE", copy=False)
     cr_fe_reference_document_type = fields.Char(string="Tipo documento referencia FE", copy=False)
     cr_fe_reference_document_number = fields.Char(string="Número documento referencia FE", copy=False)
     cr_fe_reference_issue_date = fields.Date(string="Fecha emisión referencia FE", copy=False)
@@ -702,6 +705,153 @@ class PosOrder(models.Model):
             return False
         return True
 
+    def _cr_get_customer_email(self):
+        self.ensure_one()
+        partner = self.partner_id.commercial_partner_id if self.partner_id else self.env["res.partner"]
+        email = (partner.email or "").strip().lower()
+        return email if email and "@" in email else False
+
+    def _cr_is_auto_email_enabled(self):
+        self.ensure_one()
+        return bool(self.config_id and self.config_id.cr_fe_enabled and self.config_id.cr_fe_auto_email_accepted_docs)
+
+    def _cr_get_email_subject(self):
+        self.ensure_one()
+        doc_type = dict(self._fields["cr_fe_document_type"].selection).get(self.cr_fe_document_type, "Comprobante")
+        identifier = self.cr_fe_consecutivo or self.name or self.pos_reference or str(self.id)
+        return _("%(doc_type)s %(identifier)s aceptado por Hacienda") % {
+            "doc_type": doc_type,
+            "identifier": identifier,
+        }
+
+    def _cr_get_email_body_html(self):
+        self.ensure_one()
+        company = self.company_id
+        identifier = self.cr_fe_consecutivo or self.name or self.pos_reference or str(self.id)
+        return Markup(
+            "<p>Estimado cliente,</p>"
+            "<p>Le compartimos su comprobante electrónico <b>%(identifier)s</b>, aceptado por Hacienda.</p>"
+            "<p>Adjuntamos XML y PDF para su respaldo fiscal.</p>"
+            "<p>Saludos,<br/>%(company)s</p>"
+        ) % {
+            "identifier": escape(identifier),
+            "company": escape(company.display_name or ""),
+        }
+
+    def _cr_get_pdf_report_action(self):
+        self.ensure_one()
+        candidate_xmlids = [
+            "account.report_invoice_with_payments",
+            "account.account_invoices",
+        ]
+        for xmlid in candidate_xmlids:
+            report = self.env.ref(xmlid, raise_if_not_found=False)
+            if report:
+                return report
+        return False
+
+    def _cr_get_or_create_pdf_attachment(self):
+        self.ensure_one()
+        move = self._cr_get_real_invoice_move() or self.cr_ticket_move_id
+        if not move:
+            return self.env["ir.attachment"]
+
+        filename = f"{(self.cr_fe_consecutivo or self.name or move.name or f'POS-{self.id}').replace('/', '-')}.pdf"
+        existing = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "pos.order"),
+                ("res_id", "=", self.id),
+                ("mimetype", "=", "application/pdf"),
+                ("name", "=", filename),
+            ],
+            limit=1,
+        )
+        if existing:
+            return existing
+
+        report = self._cr_get_pdf_report_action()
+        if not report:
+            return self.env["ir.attachment"]
+
+        pdf_content, _content_type = report._render_qweb_pdf(move.ids)
+        return self.env["ir.attachment"].create(
+            {
+                "name": filename,
+                "type": "binary",
+                "datas": base64.b64encode(pdf_content),
+                "res_model": "pos.order",
+                "res_id": self.id,
+                "mimetype": "application/pdf",
+            }
+        )
+
+    def _cr_get_email_attachments(self):
+        self.ensure_one()
+        attachments = self.env["ir.attachment"]
+        for attachment in (self.cr_fe_xml_attachment_id, self.cr_fe_response_attachment_id):
+            if attachment:
+                attachments |= attachment
+        pdf_attachment = self._cr_get_or_create_pdf_attachment()
+        if pdf_attachment:
+            attachments |= pdf_attachment
+        return attachments
+
+    def _cr_should_send_accepted_email(self):
+        self.ensure_one()
+        return bool(
+            self._cr_is_auto_email_enabled()
+            and self.cr_fe_status == "accepted"
+            and self.cr_fe_document_type in ("te", "nc")
+            and not self.cr_fe_email_sent
+            and self._cr_get_customer_email()
+        )
+
+    def _cr_try_send_accepted_email(self):
+        self.ensure_one()
+        if not self._cr_should_send_accepted_email():
+            return False
+
+        recipient = self._cr_get_customer_email()
+        attachments = self._cr_get_email_attachments()
+        if not attachments:
+            self.with_context(cr_fe_skip_email_delivery=True).write(
+                {"cr_fe_email_error": _("No se encontraron adjuntos XML/PDF para el envío por correo.")}
+            )
+            return False
+
+        try:
+            mail = (
+                self.env["mail.mail"]
+                .sudo()
+                .create(
+                    {
+                        "subject": self._cr_get_email_subject(),
+                        "email_to": recipient,
+                        "body_html": self._cr_get_email_body_html(),
+                        "auto_delete": False,
+                        "attachment_ids": [(6, 0, attachments.ids)],
+                    }
+                )
+            )
+            mail.send()
+            self.with_context(cr_fe_skip_email_delivery=True).write(
+                {
+                    "cr_fe_email_sent": True,
+                    "cr_fe_email_sent_date": fields.Datetime.now(),
+                    "cr_fe_email_error": False,
+                }
+            )
+            self._cr_post_fe_event(
+                title=_("Correo FE enviado"),
+                body=_("Se envió TE/NC aceptado al cliente: %s") % recipient,
+                attachments=attachments,
+            )
+            return True
+        except Exception as error:  # noqa: BLE001
+            self._logger.exception("Error enviando correo FE para POS order %s", self.id)
+            self.with_context(cr_fe_skip_email_delivery=True).write({"cr_fe_email_error": str(error)})
+            return False
+
     def write(self, vals):
         """Post FE milestones to chatter (generated/sent/accepted/rejected/error)."""
         tracked_fields = {"cr_fe_status", "cr_fe_xml_attachment_id", "cr_fe_response_attachment_id"}
@@ -750,6 +900,11 @@ class PosOrder(models.Model):
                         body=extra,
                         attachments=[order.cr_fe_response_attachment_id] if order.cr_fe_response_attachment_id else None,
                     )
+                    if (
+                        order.cr_fe_status == "accepted"
+                        and not self.env.context.get("cr_fe_skip_email_delivery")
+                    ):
+                        order._cr_try_send_accepted_email()
 
                 # Response received (first time linked)
                 new_resp = order.cr_fe_response_attachment_id

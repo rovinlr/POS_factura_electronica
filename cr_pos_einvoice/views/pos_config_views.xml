@@ -9,6 +9,7 @@
                 <group string="Factura electrónica (CR)">
                     <field name="cr_fe_enabled"/>
                     <field name="cr_fe_auto_send_on_reference" invisible="not cr_fe_enabled"/>
+                    <field name="cr_fe_auto_email_accepted_docs" invisible="not cr_fe_enabled"/>
                     <field name="fp_economic_activity_id"/>
                 </group>
             </xpath>

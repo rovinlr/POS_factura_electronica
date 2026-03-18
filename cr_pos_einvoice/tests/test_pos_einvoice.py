@@ -244,6 +244,72 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(origin_invoice, ticket_move)
 
+    def test_should_send_accepted_email_only_for_te_nc_with_customer_email(self):
+        partner = self.env["res.partner"].create({"name": "Cliente POS", "email": "cliente@example.com"})
+        config = self.env["pos.config"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_enabled": True,
+                "cr_fe_auto_email_accepted_docs": True,
+            }
+        )
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        order.partner_id = partner
+        order.config_id = config
+        order.cr_fe_status = "accepted"
+        order.cr_fe_document_type = "te"
+        order.cr_fe_email_sent = False
+        self.assertTrue(order._cr_should_send_accepted_email())
+
+        order.cr_fe_document_type = "fe"
+        self.assertFalse(order._cr_should_send_accepted_email())
+
+        order.cr_fe_document_type = "nc"
+        order.partner_id.email = False
+        self.assertFalse(order._cr_should_send_accepted_email())
+
+    def test_get_email_attachments_includes_xml_response_and_pdf(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/001"})
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/xml",
+            }
+        )
+        response_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "respuesta.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/xml",
+            }
+        )
+        fake_pdf = self.env["ir.attachment"].create(
+            {
+                "name": "ticket.pdf",
+                "type": "binary",
+                "datas": "JVBERi0xLjQKJQ==",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/pdf",
+            }
+        )
+        order.cr_fe_xml_attachment_id = xml_attachment
+        order.cr_fe_response_attachment_id = response_attachment
+
+        with patch.object(type(order), "_cr_get_or_create_pdf_attachment", lambda self: fake_pdf):
+            attachments = order._cr_get_email_attachments()
+
+        self.assertIn(xml_attachment, attachments)
+        self.assertIn(response_attachment, attachments)
+        self.assertIn(fake_pdf, attachments)
+
     def test_prefill_reference_from_origin_order_copies_reference_fields(self):
         RefundOrder = self.env["pos.order"]
         origin_order = RefundOrder.create(
