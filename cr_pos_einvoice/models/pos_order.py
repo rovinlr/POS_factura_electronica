@@ -926,6 +926,16 @@ class PosOrder(models.Model):
                     error,
                 )
 
+        reference_payload = {}
+        if order._cr_is_credit_note_order():
+            reference_payload = order._cr_get_refund_reference_data() or {}
+            if reference_payload:
+                default_reason = _("Devolución de mercadería")
+                if not reference_payload.get("code"):
+                    reference_payload["code"] = "01"
+                if not reference_payload.get("reason"):
+                    reference_payload["reason"] = default_reason
+
         return {
             "id": order.id,
             "pos_reference": order.pos_reference,
@@ -934,11 +944,11 @@ class PosOrder(models.Model):
             "cr_fe_clave": order.cr_fe_clave,
             "cr_fe_status": order.cr_fe_status,
             "fp_payment_method": order.fp_payment_method,
-            "cr_fe_reference_document_type": order.cr_fe_reference_document_type,
-            "cr_fe_reference_document_number": order.cr_fe_reference_document_number,
-            "cr_fe_reference_issue_date": order.cr_fe_reference_issue_date,
-            "cr_fe_reference_code": order.cr_fe_reference_code,
-            "cr_fe_reference_reason": order.cr_fe_reference_reason,
+            "cr_fe_reference_document_type": order.cr_fe_reference_document_type or reference_payload.get("document_type"),
+            "cr_fe_reference_document_number": order.cr_fe_reference_document_number or reference_payload.get("number"),
+            "cr_fe_reference_issue_date": order.cr_fe_reference_issue_date or reference_payload.get("issue_date"),
+            "cr_fe_reference_code": order.cr_fe_reference_code or reference_payload.get("code"),
+            "cr_fe_reference_reason": order.cr_fe_reference_reason or reference_payload.get("reason"),
         }
 
     @api.model
@@ -1222,7 +1232,12 @@ class PosOrder(models.Model):
 
             # Never overwrite manually provided values on the refund itself.
             existing_snapshot = order._cr_get_manual_reference_data()
-            if all(existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")):
+            if all(existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")) and all(
+                (
+                    order.cr_fe_reference_code,
+                    order.cr_fe_reference_reason,
+                )
+            ):
                 continue
 
             origin_order = order._cr_get_origin_order_for_refund()
@@ -1290,8 +1305,20 @@ class PosOrder(models.Model):
                 continue
 
             existing_snapshot = order._cr_get_manual_reference_data()
-            if all(existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")):
+            required_reference_already_set = all(
+                existing_snapshot.get(key) for key in ("document_type", "number", "issue_date")
+            )
+            if required_reference_already_set:
                 # Existing/operator-provided values take precedence and must not be overwritten.
+                # Still fill optional code/reason when missing so receipt/UI stays aligned
+                # with XML payload defaults.
+                vals = {}
+                if not order.cr_fe_reference_code:
+                    vals["cr_fe_reference_code"] = existing_snapshot.get("code") or "01"
+                if not order.cr_fe_reference_reason:
+                    vals["cr_fe_reference_reason"] = existing_snapshot.get("reason") or _("Devolución de mercadería")
+                if vals:
+                    order.sudo().write(vals)
                 continue
 
             reference_data = order._cr_get_refund_reference_data()
