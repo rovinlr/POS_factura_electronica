@@ -321,10 +321,16 @@ class PosOrder(models.Model):
         return bool(self._cr_get_real_invoice_move())
 
     def _cr_is_marked_for_invoicing(self):
-        """Return True when FE must be handled by account.move, not by POS TE flow."""
+        """Return True when FE must be handled by account.move, not by POS TE flow.
+
+        In Odoo POS, the authoritative user intent is the boolean `to_invoice`
+        toggled in the frontend ("Facturar"). `invoice_status` can vary by
+        implementation/customizations and must not disable TE/NC by itself when
+        `to_invoice` is explicitly False.
+        """
         self.ensure_one()
-        if "to_invoice" in self._fields and self.to_invoice:
-            return True
+        if "to_invoice" in self._fields:
+            return bool(self.to_invoice)
         invoice_status = (self.invoice_status or "").strip().lower()
         return invoice_status in ("to invoice", "to_invoice", "invoiced")
 
