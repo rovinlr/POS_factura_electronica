@@ -1775,11 +1775,24 @@ class PosOrder(models.Model):
         flow (XML/sign/send/email). We force any known email flag to False to
         prevent POS from preempting that process.
         """
+        no_email_context = {
+            "mail_notify_force_send": False,
+            "mail_notify_noemail": True,
+            "skip_invoice_send": True,
+        }
 
         for key in ("send_email", "email", "mail_invoice", "send_mail"):
             if key in kwargs:
                 kwargs[key] = False
-        return super()._generate_pos_order_invoice(*args, **kwargs)
+        send_and_print_values = kwargs.get("send_and_print_values")
+        if isinstance(send_and_print_values, dict):
+            send_and_print_values.update({"send_mail": False, "send_email": False})
+
+        explicit_context = kwargs.get("context")
+        if isinstance(explicit_context, dict):
+            kwargs["context"] = {**explicit_context, **no_email_context}
+
+        return super(PosOrder, self.with_context(**no_email_context))._generate_pos_order_invoice(*args, **kwargs)
 
     def _cr_get_origin_order_for_refund(self):
         """Find the original POS order referenced by refunded lines."""
