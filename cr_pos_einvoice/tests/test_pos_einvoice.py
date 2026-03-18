@@ -356,6 +356,69 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(len(pdfs), 1)
         self.assertIn(xml_attachment, attachments)
 
+    def test_try_send_accepted_email_links_mail_to_pos_order(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE", "email": "mailtest@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/LINK/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te-mail.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/xml",
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_email_attachments", lambda self: xml_attachment):
+            with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+                with patch.object(type(self.env["mail.mail"]), "send", lambda self: True):
+                    self.assertTrue(order._cr_try_send_accepted_email())
+
+        mail = self.env["mail.mail"].search([("model", "=", "pos.order"), ("res_id", "=", order.id)], limit=1)
+        self.assertTrue(mail)
+        self.assertEqual(mail.email_to, partner.email)
+
+    def test_try_send_accepted_email_skips_duplicate_when_mail_already_exists(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE Dup", "email": "dupmail@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/DUP/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        self.env["mail.mail"].sudo().create(
+            {
+                "subject": order._cr_get_email_subject(),
+                "email_to": partner.email,
+                "body_html": "<p>Duplicado</p>",
+                "state": "sent",
+                "model": "pos.order",
+                "res_id": order.id,
+            }
+        )
+
+        with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+            with patch.object(type(self.env["mail.mail"]), "create", side_effect=AssertionError("Should not create duplicate mail")):
+                self.assertTrue(order._cr_try_send_accepted_email())
+
+        self.assertTrue(order.cr_fe_email_sent)
+
     def test_get_email_attachments_includes_linked_pdf_attachment(self):
         order = self.env["pos.order"].create(
             {
