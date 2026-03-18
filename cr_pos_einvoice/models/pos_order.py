@@ -780,10 +780,8 @@ class PosOrder(models.Model):
     def _cr_get_or_create_pdf_attachment(self):
         self.ensure_one()
         move = self._cr_get_real_invoice_move() or self.cr_ticket_move_id
-        if not move:
-            return self.env["ir.attachment"]
 
-        filename = f"{(self.cr_fe_consecutivo or self.name or move.name or f'POS-{self.id}').replace('/', '-')}.pdf"
+        filename = f"{(self.cr_fe_consecutivo or self.name or (move and move.name) or f'POS-{self.id}').replace('/', '-')}.pdf"
         existing = self.env["ir.attachment"].search(
             [
                 ("res_model", "=", "pos.order"),
@@ -800,7 +798,15 @@ class PosOrder(models.Model):
         if not report:
             return self.env["ir.attachment"]
 
-        record_ids = self.ids if report.model == "pos.order" else move.ids
+        if report.model == "pos.order":
+            record_ids = self.ids
+        elif move:
+            record_ids = move.ids
+        else:
+            # No account.move exists for POS TE and selected report is invoice-only.
+            # Avoid raising and let mail flow continue with XML attachments.
+            return self.env["ir.attachment"]
+
         pdf_content, _content_type = report._render_qweb_pdf(record_ids)
         return self.env["ir.attachment"].create(
             {

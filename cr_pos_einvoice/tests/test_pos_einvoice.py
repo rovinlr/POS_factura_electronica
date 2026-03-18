@@ -310,6 +310,24 @@ class TestPosEInvoice(TransactionCase):
         self.assertIn(response_attachment, attachments)
         self.assertIn(fake_pdf, attachments)
 
+    def test_get_or_create_pdf_attachment_for_ticket_without_move_uses_pos_report(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/NOINV/001"})
+
+        class FakePosReport:
+            model = "pos.order"
+
+            def _render_qweb_pdf(self, record_ids):
+                self.record_ids = record_ids
+                return b"%PDF-1.4\n%dummy", "application/pdf"
+
+        fake_report = FakePosReport()
+        with patch.object(type(order), "_cr_get_pdf_report_action", lambda self: fake_report):
+            pdf_attachment = order._cr_get_or_create_pdf_attachment()
+
+        self.assertTrue(pdf_attachment)
+        self.assertEqual(pdf_attachment.mimetype, "application/pdf")
+        self.assertEqual(pdf_attachment.res_model, "pos.order")
+
     def test_prefill_reference_from_origin_order_copies_reference_fields(self):
         RefundOrder = self.env["pos.order"]
         origin_order = RefundOrder.create(
