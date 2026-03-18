@@ -54,8 +54,11 @@
                         <group>
                             <field name="cr_fe_idempotency_key" readonly="1"/>
                             <field name="cr_fe_last_send_date" readonly="1"/>
+                            <field name="cr_fe_email_sent" readonly="1"/>
+                            <field name="cr_fe_email_sent_date" readonly="1"/>
                             <field name="cr_fe_retry_count" readonly="1"/>
                             <field name="cr_fe_error_code" readonly="1"/>
+                            <field name="cr_fe_email_error" readonly="1"/>
                             <field name="cr_fe_last_error" readonly="1"/>
                         </group>
                     </group>
