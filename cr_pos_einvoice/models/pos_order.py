@@ -977,11 +977,19 @@ class PosOrder(models.Model):
             return False
 
         recipient = self._cr_get_customer_email()
+        existing_mail = self._cr_find_existing_sent_fe_email(recipient)
+        if existing_mail:
+            self._logger.info(
+                "Skipping duplicate FE email for POS order %s; mail %s already exists in state %s.",
+                self.id,
+                existing_mail.id,
+                existing_mail.state,
+            )
+            self._cr_mark_accepted_email_sent()
+            return True
         attachments = self._cr_get_email_attachments()
         if not attachments:
-            self.with_context(cr_fe_skip_email_delivery=True).write(
-                {"cr_fe_email_error": _("No se encontraron adjuntos XML/PDF para el envío por correo.")}
-            )
+            self._cr_set_email_delivery_error(_("No se encontraron adjuntos XML/PDF para el envío por correo."))
             return False
 
         try:
@@ -994,18 +1002,14 @@ class PosOrder(models.Model):
                         "email_to": recipient,
                         "body_html": self._cr_get_email_body_html(),
                         "auto_delete": False,
+                        "model": "pos.order",
+                        "res_id": self.id,
                         "attachment_ids": [(6, 0, attachments.ids)],
                     }
                 )
             )
             mail.send()
-            self.with_context(cr_fe_skip_email_delivery=True).write(
-                {
-                    "cr_fe_email_sent": True,
-                    "cr_fe_email_sent_date": fields.Datetime.now(),
-                    "cr_fe_email_error": False,
-                }
-            )
+            self._cr_mark_accepted_email_sent()
             self._cr_post_fe_event(
                 title=_("Correo FE enviado"),
                 body=_("Se envió TE/NC aceptado al cliente: %s") % recipient,
@@ -1014,8 +1018,63 @@ class PosOrder(models.Model):
             return True
         except Exception as error:  # noqa: BLE001
             self._logger.exception("Error enviando correo FE para POS order %s", self.id)
-            self.with_context(cr_fe_skip_email_delivery=True).write({"cr_fe_email_error": str(error)})
+            self._cr_set_email_delivery_error(str(error))
             return False
+
+    def _cr_find_existing_sent_fe_email(self, recipient):
+        self.ensure_one()
+        return (
+            self.env["mail.mail"]
+            .sudo()
+            .search(
+                [
+                    ("model", "=", "pos.order"),
+                    ("res_id", "=", self.id),
+                    ("email_to", "=", recipient),
+                    ("state", "in", ["outgoing", "sent"]),
+                ],
+                order="id desc",
+                limit=1,
+            )
+        )
+
+    def _cr_mark_accepted_email_sent(self):
+        self.ensure_one()
+        values = {
+            "cr_fe_email_sent": True,
+            "cr_fe_email_sent_date": fields.Datetime.now(),
+            "cr_fe_email_error": False,
+        }
+        for _attempt in range(3):
+            try:
+                with self.env.cr.savepoint():
+                    self.with_context(cr_fe_skip_email_delivery=True).write(values)
+                return True
+            except SerializationFailure:
+                self.invalidate_recordset(["cr_fe_email_sent", "cr_fe_email_sent_date", "cr_fe_email_error"])
+                if self.cr_fe_email_sent:
+                    return True
+        self._logger.warning(
+            "Unable to persist FE email sent marker for POS order %s due to concurrent updates; "
+            "next retry will reconcile state.",
+            self.id,
+        )
+        return False
+
+    def _cr_set_email_delivery_error(self, message):
+        self.ensure_one()
+        for _attempt in range(3):
+            try:
+                with self.env.cr.savepoint():
+                    self.with_context(cr_fe_skip_email_delivery=True).write({"cr_fe_email_error": message})
+                return True
+            except SerializationFailure:
+                self.invalidate_recordset(["cr_fe_email_error"])
+        self._logger.warning(
+            "Unable to persist FE email error for POS order %s due to concurrent updates.",
+            self.id,
+        )
+        return False
 
     def write(self, vals):
         """Post FE milestones to chatter (generated/sent/accepted/rejected/error)."""
