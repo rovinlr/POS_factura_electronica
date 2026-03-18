@@ -921,7 +921,14 @@ class PosOrder(models.Model):
         for attachment in (self.cr_fe_xml_attachment_id, self.cr_fe_response_attachment_id):
             if attachment:
                 attachments |= attachment
-        pdf_attachment = self._cr_get_or_create_pdf_attachment()
+
+        # Prefer the FE-accepted receipt PDF linked directly to pos.order.
+        # If FE is accepted, force generation/upsert first so mail can include it.
+        if self._cr_normalize_hacienda_status(self.cr_fe_status) == "accepted":
+            self.cr_pos_generate_receipt_pdf_if_accepted([self.id])
+        pdf_attachment = self._cr_get_existing_receipt_pdf_attachment()
+        if not pdf_attachment:
+            pdf_attachment = self._cr_get_or_create_pdf_attachment()
         if pdf_attachment:
             attachments |= pdf_attachment
         return attachments

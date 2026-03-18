@@ -328,6 +328,34 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(pdf_attachment.mimetype, "application/pdf")
         self.assertEqual(pdf_attachment.res_model, "pos.order")
 
+    def test_get_email_attachments_prefers_receipt_pdf_when_accepted(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/001",
+                "cr_fe_status": "accepted",
+                "cr_fe_consecutivo": "00100001010000000055",
+            }
+        )
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/xml",
+            }
+        )
+        order.cr_fe_xml_attachment_id = xml_attachment
+
+        with patch.object(type(order), "_cr_render_receipt_pdf_content", lambda self: b"%PDF-mail"):
+            attachments = order._cr_get_email_attachments()
+
+        pdfs = attachments.filtered(lambda a: a.mimetype == "application/pdf" and a.res_model == "pos.order" and a.res_id == order.id)
+        self.assertEqual(len(pdfs), 1)
+        self.assertIn(xml_attachment, attachments)
+
     def test_generate_receipt_pdf_if_accepted_skips_pending(self):
         order = self.env["pos.order"].create(
             {
