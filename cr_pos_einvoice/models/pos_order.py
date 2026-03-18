@@ -740,10 +740,21 @@ class PosOrder(models.Model):
 
     def _cr_get_pdf_report_action(self):
         self.ensure_one()
-        candidate_xmlids = [
-            "account.report_invoice_with_payments",
-            "account.account_invoices",
-        ]
+        # 1) Prefer POS-native reports so customer receives the same ticket style
+        # printed by POS/backoffice for pos.order.
+        pos_report = self.env["ir.actions.report"].search(
+            [
+                ("model", "=", "pos.order"),
+                ("report_type", "=", "qweb-pdf"),
+            ],
+            order="id asc",
+            limit=1,
+        )
+        if pos_report:
+            return pos_report
+
+        # 2) Conservative fallback to account.move invoice reports.
+        candidate_xmlids = ["account.report_invoice_with_payments", "account.account_invoices"]
         for xmlid in candidate_xmlids:
             report = self.env.ref(xmlid, raise_if_not_found=False)
             if report:
@@ -773,7 +784,8 @@ class PosOrder(models.Model):
         if not report:
             return self.env["ir.attachment"]
 
-        pdf_content, _content_type = report._render_qweb_pdf(move.ids)
+        record_ids = self.ids if report.model == "pos.order" else move.ids
+        pdf_content, _content_type = report._render_qweb_pdf(record_ids)
         return self.env["ir.attachment"].create(
             {
                 "name": filename,
