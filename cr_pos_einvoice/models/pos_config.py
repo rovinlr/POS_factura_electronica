@@ -24,3 +24,11 @@ class PosConfig(models.Model):
             "inmediatamente, sin esperar el cron. El envío a Hacienda queda a cargo del cron."
         ),
     )
+    cr_fe_auto_email_accepted_docs = fields.Boolean(
+        string="Enviar por correo TE/NC aceptados",
+        default=True,
+        help=(
+            "Si está activo, cuando Hacienda acepte un TE o NC del POS y el cliente tenga "
+            "correo, se enviará automáticamente un email con XML y PDF adjuntos."
+        ),
+    )
