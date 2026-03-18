@@ -1032,6 +1032,8 @@ class PosOrder(models.Model):
             if raw_value in (False, None):
                 continue
             value = raw_value.strip() if isinstance(raw_value, str) else raw_value
+            if isinstance(value, str) and value.lower() in {"false", "null", "none", "undefined"}:
+                continue
             if value in (False, None, ""):
                 continue
             if field_name == "cr_fe_reference_issue_date":
@@ -2179,8 +2181,10 @@ class PosOrder(models.Model):
         journal = self.env["account.journal"].with_company(company).search(
             [("type", "=", "sale"), ("company_id", "=", company.id)], limit=1
         )
+        is_credit_note = (document_type or "").lower() == "nc" or self.amount_total < 0
         line_commands = []
         for line in self.lines:
+            line_quantity = abs(line.qty) if is_credit_note else line.qty
             line_commands.append(
                 (
                     0,
@@ -2188,7 +2192,7 @@ class PosOrder(models.Model):
                     {
                         "product_id": line.product_id.id,
                         "name": line.full_product_name or line.product_id.display_name,
-                        "quantity": line.qty,
+                        "quantity": line_quantity,
                         "price_unit": line.price_unit,
                         "discount": line.discount,
                         "tax_ids": [(6, 0, line.tax_ids_after_fiscal_position.ids)],
@@ -2197,7 +2201,6 @@ class PosOrder(models.Model):
                 )
             )
 
-        is_credit_note = (document_type or "").lower() == "nc" or self.amount_total < 0
         move_vals = {
             "move_type": "out_refund" if is_credit_note else "out_invoice",
             "company_id": company.id,

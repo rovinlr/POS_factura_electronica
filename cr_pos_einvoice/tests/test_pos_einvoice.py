@@ -796,6 +796,83 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(fields_vals.get("cr_fe_reference_code"), "01")
         self.assertEqual(fields_vals.get("cr_fe_reference_reason"), "Devolución de mercadería")
 
+    def test_order_fields_ignores_literal_false_in_manual_reference(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Order 002",
+                "amount_total": -10.0,
+                "reference": {
+                    "document_type": "04",
+                    "number": "50601010100000000000000100001040000000001123456789",
+                    "issue_date": "2026-02-27",
+                    "code": "false",
+                    "reason": "false",
+                },
+            }
+        }
+
+        fields_vals = order_model._order_fields(ui_order)
+
+        self.assertEqual(fields_vals.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(
+            fields_vals.get("cr_fe_reference_document_number"),
+            "50601010100000000000000100001040000000001123456789",
+        )
+        self.assertEqual(fields_vals.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(fields_vals.get("cr_fe_reference_code"), "01")
+        self.assertEqual(fields_vals.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+    def test_build_virtual_move_uses_positive_quantities_for_credit_notes(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Servicio NC",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 100.0,
+            }
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": product.id,
+                            "qty": -1.0,
+                            "price_unit": 100.0,
+                            "discount": 0.0,
+                            "tax_ids_after_fiscal_position": [(6, 0, [])],
+                            "product_uom_id": uom_unit.id,
+                        },
+                    )
+                ],
+            }
+        )
+
+        move = order._cr_build_virtual_move(
+            document_type="nc",
+            consecutivo="00100001040000000999",
+            clave="50601010100000000000000100001040000000999123456789",
+        )
+
+        self.assertEqual(move.move_type, "out_refund")
+        self.assertEqual(move.invoice_line_ids[0].quantity, 1.0)
+
     def test_extract_other_charges_from_ui_and_payload_mapping(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
