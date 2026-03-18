@@ -38,6 +38,50 @@ class AccountMove(models.Model):
     cr_pos_fe_last_error = fields.Text(string="Último error FE POS", copy=False)
     cr_pos_fe_last_send_date = fields.Datetime(string="Último envío FE POS", copy=False)
 
+    def action_post(self):
+        """Keep POS->Factura FE pipeline deterministic after posting invoices.
+
+        POS orders marked as "Facturar" may create/post their account.move after
+        the POS order FE dispatcher ran. If we do not re-arm FE metadata at
+        posting time, the invoice can be valid in accounting but never queued
+        for XML/sign/send in l10n_cr_einvoice.
+        """
+        result = super().action_post()
+        self._cr_pos_after_post_hook()
+        return result
+
+    def _cr_pos_after_post_hook(self):
+        """Link posted customer invoices with POS FE flow and enqueue send."""
+        posted_customer_moves = self.filtered(
+            lambda move: move.state == "posted" and move.move_type in ("out_invoice", "out_refund")
+        )
+        if not posted_customer_moves:
+            return
+
+        orders_by_move = {}
+        pos_order_model = self.env["pos.order"]
+        for move in posted_customer_moves:
+            order = move.cr_pos_order_id
+            if not order and "account_move" in pos_order_model._fields:
+                order = pos_order_model.search([("account_move", "=", move.id)], limit=1)
+            if not order:
+                continue
+            if not move.cr_pos_order_id:
+                move.write(
+                    {
+                        "cr_pos_order_id": order.id,
+                        "cr_pos_document_type": "nc" if move.move_type == "out_refund" else "fe",
+                    }
+                )
+            order._cr_prepare_invoice_fe_values(move)
+            order._cr_sync_from_invoice_only()
+            orders_by_move[move.id] = order.id
+
+        target_moves = posted_customer_moves.filtered(lambda move: move.id in orders_by_move)
+        if target_moves:
+            # Queue for l10n_cr_einvoice cron/send methods without forcing resend.
+            target_moves._cr_pos_enqueue_for_send(force=False)
+
     def action_cr_pos_send_hacienda(self):
         for move in self:
             move._cr_pos_enqueue_for_send(force=True)
