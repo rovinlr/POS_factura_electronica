@@ -60,6 +60,7 @@ class PosOrder(models.Model):
     cr_fe_idempotency_key = fields.Char(string="Clave de idempotencia FE", copy=False, index=True)
     cr_fe_xml_attachment_id = fields.Many2one("ir.attachment", string="XML documento", copy=False)
     cr_fe_response_attachment_id = fields.Many2one("ir.attachment", string="XML respuesta MH", copy=False)
+    cr_fe_pdf_attachment_id = fields.Many2one("ir.attachment", string="PDF comprobante", copy=False)
     cr_fe_attachment_ids = fields.Many2many("ir.attachment", string="Adjuntos FE", compute="_compute_cr_fe_attachment_ids")
     cr_fe_retry_count = fields.Integer(string="Reintentos FE", default=0, copy=False)
     cr_fe_next_try = fields.Datetime(string="Próximo intento FE", copy=False)
@@ -784,6 +785,15 @@ class PosOrder(models.Model):
         move = self._cr_get_real_invoice_move() or self.cr_ticket_move_id
 
         filename = f"{(self.cr_fe_consecutivo or self.name or (move and move.name) or f'POS-{self.id}').replace('/', '-')}.pdf"
+        if (
+            self.cr_fe_pdf_attachment_id
+            and self.cr_fe_pdf_attachment_id.exists()
+            and self.cr_fe_pdf_attachment_id.res_model == "pos.order"
+            and self.cr_fe_pdf_attachment_id.res_id == self.id
+            and self.cr_fe_pdf_attachment_id.mimetype == "application/pdf"
+        ):
+            return self.cr_fe_pdf_attachment_id
+
         existing = self.env["ir.attachment"].search(
             [
                 ("res_model", "=", "pos.order"),
@@ -794,6 +804,8 @@ class PosOrder(models.Model):
             limit=1,
         )
         if existing:
+            if self.id and self.cr_fe_pdf_attachment_id != existing:
+                self.sudo().write({"cr_fe_pdf_attachment_id": existing.id})
             return existing
 
         report = self._cr_get_pdf_report_action()
@@ -810,7 +822,7 @@ class PosOrder(models.Model):
             return self.env["ir.attachment"]
 
         pdf_content, _content_type = report._render_qweb_pdf(record_ids)
-        return self.env["ir.attachment"].create(
+        attachment = self.env["ir.attachment"].create(
             {
                 "name": filename,
                 "type": "binary",
@@ -820,6 +832,9 @@ class PosOrder(models.Model):
                 "mimetype": "application/pdf",
             }
         )
+        if self.id and self.cr_fe_pdf_attachment_id != attachment:
+            self.sudo().write({"cr_fe_pdf_attachment_id": attachment.id})
+        return attachment
 
     def _cr_pdf_attachment_name(self):
         self.ensure_one()
@@ -829,6 +844,14 @@ class PosOrder(models.Model):
 
     def _cr_get_existing_receipt_pdf_attachment(self):
         self.ensure_one()
+        if (
+            self.cr_fe_pdf_attachment_id
+            and self.cr_fe_pdf_attachment_id.exists()
+            and self.cr_fe_pdf_attachment_id.res_model == "pos.order"
+            and self.cr_fe_pdf_attachment_id.res_id == self.id
+            and self.cr_fe_pdf_attachment_id.mimetype == "application/pdf"
+        ):
+            return self.cr_fe_pdf_attachment_id
         return self.env["ir.attachment"].search(
             [
                 ("res_model", "=", "pos.order"),
@@ -886,8 +909,13 @@ class PosOrder(models.Model):
         }
         if existing:
             existing.write(values)
+            if self.id and self.cr_fe_pdf_attachment_id != existing:
+                self.sudo().write({"cr_fe_pdf_attachment_id": existing.id})
             return existing
-        return self.env["ir.attachment"].create(values)
+        attachment = self.env["ir.attachment"].create(values)
+        if self.id and self.cr_fe_pdf_attachment_id != attachment:
+            self.sudo().write({"cr_fe_pdf_attachment_id": attachment.id})
+        return attachment
 
     @api.model
     def cr_pos_store_receipt_html(self, order_id, receipt_html):
@@ -918,7 +946,7 @@ class PosOrder(models.Model):
     def _cr_get_email_attachments(self):
         self.ensure_one()
         attachments = self.env["ir.attachment"]
-        for attachment in (self.cr_fe_xml_attachment_id, self.cr_fe_response_attachment_id):
+        for attachment in (self.cr_fe_xml_attachment_id, self.cr_fe_response_attachment_id, self.cr_fe_pdf_attachment_id):
             if attachment:
                 attachments |= attachment
 
@@ -991,7 +1019,7 @@ class PosOrder(models.Model):
 
     def write(self, vals):
         """Post FE milestones to chatter (generated/sent/accepted/rejected/error)."""
-        tracked_fields = {"cr_fe_status", "cr_fe_xml_attachment_id", "cr_fe_response_attachment_id"}
+        tracked_fields = {"cr_fe_status", "cr_fe_xml_attachment_id", "cr_fe_response_attachment_id", "cr_fe_pdf_attachment_id"}
         needs_track = bool(tracked_fields.intersection(vals))
         old = {}
         if needs_track:

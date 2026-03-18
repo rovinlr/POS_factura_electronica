@@ -76,6 +76,7 @@
                     <group string="Adjuntos XML">
                         <field name="cr_fe_xml_attachment_id" readonly="1"/>
                         <field name="cr_fe_response_attachment_id" readonly="1"/>
+                        <field name="cr_fe_pdf_attachment_id" readonly="1"/>
                         <field name="cr_fe_attachment_ids" readonly="1" widget="many2many_binary"/>
                     </group>
                 </page>
