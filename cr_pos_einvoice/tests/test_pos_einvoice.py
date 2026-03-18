@@ -356,6 +356,31 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(len(pdfs), 1)
         self.assertIn(xml_attachment, attachments)
 
+    def test_get_email_attachments_includes_linked_pdf_attachment(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/LINK/001",
+                "cr_fe_status": "accepted",
+            }
+        )
+        linked_pdf = self.env["ir.attachment"].create(
+            {
+                "name": "custom_mail_ticket.pdf",
+                "type": "binary",
+                "datas": "JVBERi0xLjQKJWxpbmtlZA==",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/pdf",
+            }
+        )
+        order.cr_fe_pdf_attachment_id = linked_pdf
+
+        with patch.object(type(order), "cr_pos_generate_receipt_pdf_if_accepted", lambda self, order_ids: True):
+            attachments = order._cr_get_email_attachments()
+
+        self.assertIn(linked_pdf, attachments)
+
     def test_generate_receipt_pdf_if_accepted_skips_pending(self):
         order = self.env["pos.order"].create(
             {
