@@ -447,6 +447,32 @@ class TestPosEInvoice(TransactionCase):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
         self.assertEqual(order._cr_get_pos_document_type(), "te")
 
+    def test_should_not_emit_ticket_when_order_to_invoice_flag_is_true(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "state": "paid",
+                "invoice_status": "no",
+                "to_invoice": True,
+            }
+        )
+        self.assertTrue(order._cr_is_marked_for_invoicing())
+        self.assertFalse(order._cr_should_emit_ticket())
+
+    def test_invoice_status_to_invoice_does_not_block_te_when_to_invoice_is_false(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "state": "paid",
+                "invoice_status": "to invoice",
+                "to_invoice": False,
+            }
+        )
+        self.assertFalse(order._cr_is_marked_for_invoicing())
+        self.assertTrue(order._cr_should_emit_ticket())
+
 
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})

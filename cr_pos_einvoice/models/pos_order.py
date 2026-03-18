@@ -320,9 +320,25 @@ class PosOrder(models.Model):
         self.ensure_one()
         return bool(self._cr_get_real_invoice_move())
 
+    def _cr_is_marked_for_invoicing(self):
+        """Return True when FE must be handled by account.move, not by POS TE flow.
+
+        In Odoo POS, the authoritative user intent is the boolean `to_invoice`
+        toggled in the frontend ("Facturar"). `invoice_status` can vary by
+        implementation/customizations and must not disable TE/NC by itself when
+        `to_invoice` is explicitly False.
+        """
+        self.ensure_one()
+        if "to_invoice" in self._fields:
+            return bool(self.to_invoice)
+        invoice_status = (self.invoice_status or "").strip().lower()
+        return invoice_status in ("to invoice", "to_invoice", "invoiced")
+
     def _cr_should_emit_ticket(self):
         self.ensure_one()
         if self.state not in ("paid", "done", "invoiced"):
+            return False
+        if self._cr_is_marked_for_invoicing():
             return False
         if self._cr_has_real_invoice_move():
             return False
@@ -1876,8 +1892,19 @@ class PosOrder(models.Model):
                 order.cr_fe_status = "not_applicable"
                 continue
 
-            if order.invoice_status == "invoiced":
-                order._cr_sync_from_invoice_only()
+            if order._cr_is_marked_for_invoicing():
+                invoice = order._cr_get_real_invoice_move()
+                if invoice:
+                    order._cr_sync_from_invoice_only()
+                else:
+                    order.write(
+                        {
+                            "cr_fe_status": "not_applicable",
+                            "cr_fe_error_code": False,
+                            "cr_fe_last_error": False,
+                            "cr_fe_next_try": False,
+                        }
+                    )
                 continue
 
             order._cr_trigger_te_flow_nonblocking()
@@ -1979,21 +2006,21 @@ class PosOrder(models.Model):
 
     def _cr_send_to_hacienda(self, force=False):
         self.ensure_one()
-        if self.invoice_status == "invoiced":
+        if self._cr_is_marked_for_invoicing():
             self._cr_sync_from_invoice_only()
             return True
         return self._cr_send_pending_te_to_hacienda(force=force)
 
     def _cr_check_hacienda_status(self):
         self.ensure_one()
-        if self.invoice_status == "invoiced":
+        if self._cr_is_marked_for_invoicing():
             self._cr_sync_from_invoice_only()
             return True
         return self._cr_check_pending_te_status()
 
     def _cr_prepare_te_document(self):
         self.ensure_one()
-        if self.invoice_status == "invoiced" or not self._cr_should_emit_ticket():
+        if self._cr_is_marked_for_invoicing() or not self._cr_should_emit_ticket():
             return False
 
         self._cr_validate_before_send()
@@ -2157,7 +2184,7 @@ class PosOrder(models.Model):
         order = self.browse(order_id)
         order.ensure_one()
 
-        if order.invoice_status == "invoiced":
+        if order._cr_is_marked_for_invoicing():
             return {"ok": False, "reason": "order_invoiced"}
 
         doc_prefix = {
@@ -2256,7 +2283,7 @@ class PosOrder(models.Model):
         """Send the already-signed POS XML to Hacienda (Recepción v4.4)."""
         order = self.browse(order_id)
         order.ensure_one()
-        if order.invoice_status == "invoiced":
+        if order._cr_is_marked_for_invoicing():
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
         order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_xml_attachment_id or not order.cr_fe_xml_attachment_id.datas:
@@ -2287,7 +2314,7 @@ class PosOrder(models.Model):
         """Consult Hacienda status for a POS document and store response XML on the POS order."""
         order = self.browse(order_id)
         order.ensure_one()
-        if order.invoice_status == "invoiced":
+        if order._cr_is_marked_for_invoicing():
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
         order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_clave:
@@ -2478,7 +2505,7 @@ class PosOrder(models.Model):
 
     def _cr_send_pending_te_to_hacienda(self, force=False):
         self.ensure_one()
-        if self.invoice_status == "invoiced":
+        if self._cr_is_marked_for_invoicing():
             return False
         if self.cr_fe_status not in ("pending", "error_retry") and not force:
             return False
@@ -2547,7 +2574,7 @@ class PosOrder(models.Model):
 
     def _cr_check_pending_te_status(self):
         self.ensure_one()
-        if self.invoice_status == "invoiced":
+        if self._cr_is_marked_for_invoicing():
             return False
 
         status = False
@@ -2584,7 +2611,7 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
         orders = self.search(domain, order="cr_fe_next_try asc, id asc")
-        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move())
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_is_marked_for_invoicing())
         if limit:
             orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]
@@ -2600,7 +2627,7 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
         orders = self.search(domain, order="cr_fe_next_try asc, id asc")
-        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move())
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_is_marked_for_invoicing())
         if limit:
             orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]
