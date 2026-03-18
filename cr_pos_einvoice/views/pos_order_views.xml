@@ -3,7 +3,7 @@
     <record id="view_pos_order_list_cr_einvoice" model="ir.ui.view">
         <field name="name">pos.order.list.cr.einvoice</field>
         <field name="model">pos.order</field>
-        <field name="inherit_id" ref="point_of_sale.view_pos_pos_tree"/>
+        <field name="inherit_id" ref="point_of_sale.view_pos_order_tree"/>
         <field name="arch" type="xml">
             <xpath expr="//list/field[@name='state']" position="after">
                 <field
