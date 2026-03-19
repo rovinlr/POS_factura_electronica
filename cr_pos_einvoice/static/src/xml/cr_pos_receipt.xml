@@ -6,9 +6,9 @@
         <xpath expr="//OrderDisplay" position="before">
             <t t-set="document_type" t-value="((order.cr_fe_document_type || '') + '').toLowerCase()"/>
             <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : 'Comprobante electrónico'))"/>
-            <div class="cr-block cr-small cr-center">
-                <div><strong><t t-esc="document_type_name"/></strong></div>
-                <div t-if="order.cr_fe_consecutivo"><t t-esc="order.cr_fe_consecutivo"/></div>
+            <div class="cr-block cr-center cr-fe-doc-header">
+                <div class="cr-fe-doc-type"><strong><t t-esc="document_type_name"/></strong></div>
+                <div class="cr-fe-consecutivo" t-if="order.cr_fe_consecutivo"><t t-esc="order.cr_fe_consecutivo"/></div>
             </div>
             <div class="cr-product-lines-head">
                 <span class="cr-product-col-qty">Cant</span>
