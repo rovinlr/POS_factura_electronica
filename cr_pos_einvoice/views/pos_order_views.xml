@@ -38,6 +38,18 @@
                     string="Consultar estado Hacienda"
                     invisible="cr_fe_status not in ['sent', 'processing', 'pending', 'error_retry']"
                 />
+                <button
+                    name="action_cr_generate_pdf_attachment"
+                    type="object"
+                    string="Imprimir/Descargar PDF"
+                    invisible="state not in ['paid', 'done', 'invoiced']"
+                />
+                <button
+                    name="action_cr_resend_fe_email"
+                    type="object"
+                    string="Reenviar correo FE"
+                    invisible="cr_fe_status != 'accepted' or not partner_id"
+                />
                 <button name="action_cr_open_fe_document" type="object" string="Abrir comprobante electrónico"/>
             </xpath>
             <xpath expr="//notebook" position="inside">

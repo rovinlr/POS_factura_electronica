@@ -115,6 +115,8 @@ class PosOrder(models.Model):
                 # Preconfigure NC as soon as a refund order exists (before payment)
                 # so FE references can be prepared deterministically.
                 order.cr_fe_document_type = "nc"
+            elif order._cr_is_marked_for_invoicing() and order.config_id and order.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
+                order.cr_fe_document_type = "fe"
             elif order.state in ("paid", "done", "invoiced"):
                 order.cr_fe_document_type = order._cr_get_pos_document_type()
             else:
@@ -337,11 +339,18 @@ class PosOrder(models.Model):
         invoice_status = (self.invoice_status or "").strip().lower()
         return invoice_status in ("to invoice", "to_invoice", "invoiced")
 
+    def _cr_requires_account_move_flow(self):
+        """Return True when this order must delegate FE lifecycle to account.move."""
+        self.ensure_one()
+        if not self._cr_is_marked_for_invoicing():
+            return False
+        return not bool(self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders)
+
     def _cr_should_emit_ticket(self):
         self.ensure_one()
         if self.state not in ("paid", "done", "invoiced"):
             return False
-        if self._cr_is_marked_for_invoicing():
+        if self._cr_requires_account_move_flow():
             return False
         if self._cr_has_real_invoice_move():
             return False
@@ -349,6 +358,8 @@ class PosOrder(models.Model):
 
     def _cr_get_pos_document_type(self):
         self.ensure_one()
+        if self._cr_is_marked_for_invoicing() and self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
+            return "fe"
         return "nc" if self._cr_is_refund_order_candidate() else "te"
 
     def _cr_is_refund_order_candidate(self):
@@ -706,6 +717,27 @@ class PosOrder(models.Model):
             "target": "current",
         }
 
+    def action_cr_generate_pdf_attachment(self):
+        self.ensure_one()
+        pdf_content = self._cr_render_receipt_pdf_content()
+        attachment = self._cr_upsert_receipt_pdf_attachment(pdf_content)
+        if not attachment:
+            raise UserError(_("No se pudo generar el PDF del comprobante para este pedido POS."))
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }
+
+    def action_cr_resend_fe_email(self):
+        for order in self:
+            if not order._cr_get_customer_email():
+                raise UserError(_("El cliente no tiene correo electrónico válido para reenviar el comprobante."))
+            order.write({"cr_fe_email_sent": False, "cr_fe_email_error": False})
+            if not order._cr_try_send_accepted_email():
+                raise UserError(order.cr_fe_email_error or _("No se pudo enviar el correo del comprobante electrónico."))
+        return True
+
     def _cr_fe_status_label(self, status):
         return dict(self._fields["cr_fe_status"].selection).get(status, status)
 
@@ -966,7 +998,7 @@ class PosOrder(models.Model):
         return bool(
             self._cr_is_auto_email_enabled()
             and self.cr_fe_status == "accepted"
-            and self.cr_fe_document_type in ("te", "nc")
+            and self.cr_fe_document_type in ("te", "fe", "nc")
             and not self.cr_fe_email_sent
             and self._cr_get_customer_email()
         )
@@ -1792,6 +1824,19 @@ class PosOrder(models.Model):
         if isinstance(explicit_context, dict):
             kwargs["context"] = {**explicit_context, **no_email_context}
 
+        self.ensure_one()
+        if self._cr_is_marked_for_invoicing() and self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
+            self.write(
+                {
+                    "cr_fe_document_type": "fe",
+                    "cr_fe_status": "pending",
+                    "cr_fe_error_code": False,
+                    "cr_fe_last_error": False,
+                    "cr_fe_next_try": fields.Datetime.now(),
+                }
+            )
+            return self.env["account.move"]
+
         return super(PosOrder, self.with_context(**no_email_context))._generate_pos_order_invoice(*args, **kwargs)
 
     def _cr_get_origin_order_for_refund(self):
@@ -2102,7 +2147,7 @@ class PosOrder(models.Model):
                 order.cr_fe_status = "not_applicable"
                 continue
 
-            if order._cr_is_marked_for_invoicing():
+            if order._cr_requires_account_move_flow():
                 invoice = order._cr_get_real_invoice_move()
                 if invoice:
                     order._cr_sync_from_invoice_only()
@@ -2216,21 +2261,21 @@ class PosOrder(models.Model):
 
     def _cr_send_to_hacienda(self, force=False):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing():
+        if self._cr_requires_account_move_flow():
             self._cr_sync_from_invoice_only()
             return True
         return self._cr_send_pending_te_to_hacienda(force=force)
 
     def _cr_check_hacienda_status(self):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing():
+        if self._cr_requires_account_move_flow():
             self._cr_sync_from_invoice_only()
             return True
         return self._cr_check_pending_te_status()
 
     def _cr_prepare_te_document(self):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing() or not self._cr_should_emit_ticket():
+        if self._cr_requires_account_move_flow() or not self._cr_should_emit_ticket():
             return False
 
         self._cr_validate_before_send()
@@ -2394,7 +2439,7 @@ class PosOrder(models.Model):
         order = self.browse(order_id)
         order.ensure_one()
 
-        if order._cr_is_marked_for_invoicing():
+        if order._cr_requires_account_move_flow():
             return {"ok": False, "reason": "order_invoiced"}
 
         doc_prefix = {
@@ -2493,7 +2538,7 @@ class PosOrder(models.Model):
         """Send the already-signed POS XML to Hacienda (Recepción v4.4)."""
         order = self.browse(order_id)
         order.ensure_one()
-        if order._cr_is_marked_for_invoicing():
+        if order._cr_requires_account_move_flow():
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
         order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_xml_attachment_id or not order.cr_fe_xml_attachment_id.datas:
@@ -2524,7 +2569,7 @@ class PosOrder(models.Model):
         """Consult Hacienda status for a POS document and store response XML on the POS order."""
         order = self.browse(order_id)
         order.ensure_one()
-        if order._cr_is_marked_for_invoicing():
+        if order._cr_requires_account_move_flow():
             return {"ok": False, "status": "not_applicable", "reason": "order_invoiced"}
         order._cr_get_or_create_idempotency_key()
         if not order.cr_fe_clave:
@@ -2715,7 +2760,7 @@ class PosOrder(models.Model):
 
     def _cr_send_pending_te_to_hacienda(self, force=False):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing():
+        if self._cr_requires_account_move_flow():
             return False
         if self.cr_fe_status not in ("pending", "error_retry") and not force:
             return False
@@ -2784,7 +2829,7 @@ class PosOrder(models.Model):
 
     def _cr_check_pending_te_status(self):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing():
+        if self._cr_requires_account_move_flow():
             return False
 
         status = False
@@ -2821,7 +2866,7 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
         orders = self.search(domain, order="cr_fe_next_try asc, id asc")
-        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_is_marked_for_invoicing())
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_requires_account_move_flow())
         if limit:
             orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]
@@ -2837,7 +2882,7 @@ class PosOrder(models.Model):
             ("cr_fe_next_try", "<=", fields.Datetime.now()),
         ]
         orders = self.search(domain, order="cr_fe_next_try asc, id asc")
-        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_is_marked_for_invoicing())
+        orders = orders.filtered(lambda order: not order._cr_has_real_invoice_move() and not order._cr_requires_account_move_flow())
         if limit:
             orders = orders[:limit]
         return [(order, "pos_ticket") for order in orders]

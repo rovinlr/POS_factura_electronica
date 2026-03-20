@@ -244,7 +244,7 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(origin_invoice, ticket_move)
 
-    def test_should_send_accepted_email_only_for_te_nc_with_customer_email(self):
+    def test_should_send_accepted_email_for_fe_te_nc_with_customer_email(self):
         partner = self.env["res.partner"].create({"name": "Cliente POS", "email": "cliente@example.com"})
         config = self.env["pos.config"].new(
             {
@@ -262,7 +262,7 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(order._cr_should_send_accepted_email())
 
         order.cr_fe_document_type = "fe"
-        self.assertFalse(order._cr_should_send_accepted_email())
+        self.assertTrue(order._cr_should_send_accepted_email())
 
         order.cr_fe_document_type = "nc"
         order.partner_id.email = False
