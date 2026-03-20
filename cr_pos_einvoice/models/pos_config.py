@@ -25,10 +25,19 @@ class PosConfig(models.Model):
         ),
     )
     cr_fe_auto_email_accepted_docs = fields.Boolean(
-        string="Enviar por correo TE/NC aceptados",
+        string="Enviar por correo comprobantes aceptados",
         default=True,
         help=(
-            "Si está activo, cuando Hacienda acepte un TE o NC del POS y el cliente tenga "
+            "Si está activo, cuando Hacienda acepte un comprobante FE/TE/NC del POS y el cliente tenga "
             "correo, se enviará automáticamente un email con XML y PDF adjuntos."
+        ),
+    )
+    cr_fe_use_pos_flow_for_invoiced_orders = fields.Boolean(
+        string="Facturar POS sin crear account.move",
+        default=False,
+        help=(
+            "Si está activo, cuando una orden del POS se marque como 'Facturar' no se creará "
+            "account.move automáticamente. El flag 'to_invoice' solo definirá tipo FE=Factura "
+            "Electrónica y el flujo FE se ejecutará desde pos.order."
         ),
     )
