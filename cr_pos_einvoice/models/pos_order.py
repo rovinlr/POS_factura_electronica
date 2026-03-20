@@ -9,7 +9,7 @@ from lxml import etree
 from markupsafe import Markup, escape
 
 from psycopg2 import IntegrityError
-from psycopg2.errors import SerializationFailure
+from psycopg2.errors import InFailedSqlTransaction, SerializationFailure
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -1009,6 +1009,7 @@ class PosOrder(models.Model):
             return False
 
         recipient = self._cr_get_customer_email()
+        attachments = self._cr_get_email_attachments()
         existing_mail = self._cr_find_existing_sent_fe_email(recipient)
         if existing_mail:
             self._logger.info(
@@ -1019,7 +1020,6 @@ class PosOrder(models.Model):
             )
             self._cr_mark_accepted_email_sent()
             return True
-        attachments = self._cr_get_email_attachments()
         if not attachments:
             self._cr_set_email_delivery_error(_("No se encontraron adjuntos XML/PDF para el envío por correo."))
             return False
@@ -1048,6 +1048,13 @@ class PosOrder(models.Model):
                 attachments=attachments,
             )
             return True
+        except (SerializationFailure, InFailedSqlTransaction) as error:
+            self._logger.warning(
+                "Concurrent transaction while sending FE email for POS order %s: %s",
+                self.id,
+                error,
+            )
+            return False
         except Exception as error:  # noqa: BLE001
             self._logger.exception("Error enviando correo FE para POS order %s", self.id)
             self._cr_set_email_delivery_error(str(error))
@@ -1079,13 +1086,11 @@ class PosOrder(models.Model):
         }
         for _attempt in range(3):
             try:
-                with self.env.cr.savepoint():
+                with self.env.cr.savepoint(flush=False):
                     self.with_context(cr_fe_skip_email_delivery=True).write(values)
                 return True
-            except SerializationFailure:
+            except (SerializationFailure, InFailedSqlTransaction):
                 self.invalidate_recordset(["cr_fe_email_sent", "cr_fe_email_sent_date", "cr_fe_email_error"])
-                if self.cr_fe_email_sent:
-                    return True
         self._logger.warning(
             "Unable to persist FE email sent marker for POS order %s due to concurrent updates; "
             "next retry will reconcile state.",
@@ -1097,10 +1102,10 @@ class PosOrder(models.Model):
         self.ensure_one()
         for _attempt in range(3):
             try:
-                with self.env.cr.savepoint():
+                with self.env.cr.savepoint(flush=False):
                     self.with_context(cr_fe_skip_email_delivery=True).write({"cr_fe_email_error": message})
                 return True
-            except SerializationFailure:
+            except (SerializationFailure, InFailedSqlTransaction):
                 self.invalidate_recordset(["cr_fe_email_error"])
         self._logger.warning(
             "Unable to persist FE email error for POS order %s due to concurrent updates.",
