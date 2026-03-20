@@ -242,11 +242,30 @@ class PosOrder(models.Model):
                 return selection
         return [("01", "Efectivo")]
 
+    def _cr_get_primary_payment_method_fallback(self):
+        """Return principal POS payment method even in mixed-version registries.
+
+        During module install/update, compute methods may be executed while the
+        registry still contains an older `pos.order` class from a previous
+        deployment that does not yet expose `_cr_get_primary_payment_method`.
+        This helper avoids hard failures by resolving the method dynamically and
+        falling back to deterministic local logic.
+        """
+        self.ensure_one()
+        if not self.payment_ids:
+            return self.env["pos.payment.method"]
+
+        primary_getter = getattr(self, "_cr_get_primary_payment_method", None)
+        if callable(primary_getter):
+            return primary_getter()
+
+        return self.payment_ids.sorted(key=lambda pay: (-abs(pay.amount), pay.id))[0].payment_method_id
+
     @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id", "lines.refunded_orderline_id", "amount_total", "account_move", "cr_fe_invoice_requested")
     def _compute_fp_pos_fe_fields(self):
         for order in self:
             doc_type = "NC" if order._cr_is_refund_order_candidate() else ("FE" if (order.cr_fe_invoice_requested or order._cr_has_real_invoice_move()) else "TE")
-            method = order._cr_get_primary_payment_method() if order.payment_ids else self.env["pos.payment.method"]
+            method = order._cr_get_primary_payment_method_fallback()
             order.fp_document_type = doc_type
             order.fp_sale_condition = method.fp_sale_condition if method else False
             order.fp_payment_method = method.fp_payment_method if method else False
