@@ -747,46 +747,46 @@ class PosOrder(models.Model):
         }
 
 
-def action_cr_print_einvoice_pdf(self):
-    self.ensure_one()
-    if self._cr_normalize_hacienda_status(self.cr_fe_status) != "accepted":
-        raise UserError(_("Solo se permite imprimir cuando el documento está ACEPTADO por Hacienda."))
+    def action_cr_print_einvoice_pdf(self):
+        self.ensure_one()
+        if self._cr_normalize_hacienda_status(self.cr_fe_status) != "accepted":
+            raise UserError(_("Solo se permite imprimir cuando el documento está ACEPTADO por Hacienda."))
 
-    doc_type = (self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower()
-    if doc_type == "fe":
-        report = self.env.ref("cr_pos_einvoice.action_report_pos_order_fe_invoice", raise_if_not_found=False)
-        if not report:
-            raise UserError(_("No se encontró el reporte PDF para Factura Electrónica."))
-        return report.report_action(self)
+        doc_type = (self.cr_fe_document_type or self._cr_get_pos_document_type() or "").lower()
+        if doc_type == "fe":
+            report = self.env.ref("cr_pos_einvoice.action_report_pos_order_fe_invoice", raise_if_not_found=False)
+            if not report:
+                raise UserError(_("No se encontró el reporte PDF para Factura Electrónica."))
+            return report.report_action(self)
 
-    self.cr_pos_generate_receipt_pdf_if_accepted([self.id])
-    pdf_attachment = self._cr_get_existing_receipt_pdf_attachment() or self.cr_fe_pdf_attachment_id
-    if not pdf_attachment or not pdf_attachment.datas:
-        raise UserError(_("No se encontró PDF del tiquete para imprimir."))
-    return {
-        "type": "ir.actions.act_url",
-        "url": f"/web/content/{pdf_attachment.id}?download=1",
-        "target": "self",
-    }
+        self.cr_pos_generate_receipt_pdf_if_accepted([self.id])
+        pdf_attachment = self._cr_get_existing_receipt_pdf_attachment() or self.cr_fe_pdf_attachment_id
+        if not pdf_attachment or not pdf_attachment.datas:
+            raise UserError(_("No se encontró PDF del tiquete para imprimir."))
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{pdf_attachment.id}?download=1",
+            "target": "self",
+        }
 
-def action_cr_open_send_email_wizard(self):
-    self.ensure_one()
-    if self._cr_normalize_hacienda_status(self.cr_fe_status) != "accepted":
-        raise UserError(_("Solo se permite enviar/reenviar cuando el documento está ACEPTADO por Hacienda."))
+    def action_cr_open_send_email_wizard(self):
+        self.ensure_one()
+        if self._cr_normalize_hacienda_status(self.cr_fe_status) != "accepted":
+            raise UserError(_("Solo se permite enviar/reenviar cuando el documento está ACEPTADO por Hacienda."))
 
-    return {
-        "type": "ir.actions.act_window",
-        "name": _("Enviar comprobante por correo"),
-        "res_model": "cr.pos.order.send.email.wizard",
-        "view_mode": "form",
-        "target": "new",
-        "context": {
-            "default_order_id": self.id,
-            "active_id": self.id,
-            "active_ids": [self.id],
-            "active_model": "pos.order",
-        },
-    }
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Enviar comprobante por correo"),
+            "res_model": "cr.pos.order.send.email.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_order_id": self.id,
+                "active_id": self.id,
+                "active_ids": [self.id],
+                "active_model": "pos.order",
+            },
+        }
 
     def _cr_fe_status_label(self, status):
         return dict(self._fields["cr_fe_status"].selection).get(status, status)
