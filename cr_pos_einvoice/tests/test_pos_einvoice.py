@@ -702,6 +702,26 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(captured["context"]["mail_notify_noemail"])
         self.assertTrue(captured["context"]["skip_invoice_send"])
 
+    def test_generate_pos_order_invoice_keeps_native_invoice_creation_when_pos_fe_flag_enabled(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "to_invoice": True,
+                "config_id": self.config.id,
+            }
+        )
+        order.config_id.cr_fe_use_pos_flow_for_invoiced_orders = True
+        marker = object()
+
+        with patch(
+            "odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice",
+            lambda self, *args, **kwargs: marker,
+        ):
+            result = order._generate_pos_order_invoice()
+
+        self.assertIs(result, marker)
+
 
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
