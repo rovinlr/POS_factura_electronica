@@ -796,7 +796,7 @@ class PosOrder(models.Model):
         pos_report = self.env["ir.actions.report"].search(
             [
                 ("model", "=", "pos.order"),
-                ("report_type", "=", "qweb-pdf"),
+                ("report_type", "in", ("qweb-pdf", "qweb-html")),
             ],
             order="id asc",
             limit=1,
