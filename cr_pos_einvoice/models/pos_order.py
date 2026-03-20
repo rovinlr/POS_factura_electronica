@@ -1299,7 +1299,7 @@ class PosOrder(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
-        records._cr_prefill_reference_from_origin_order()
+        records._cr_run_reference_prefill_hook()
         records._cr_capture_reference_snapshot()
         return records
 
@@ -1309,7 +1309,7 @@ class PosOrder(models.Model):
         records = self.browse([item.get("id") if isinstance(item, dict) else item for item in result]).exists()
         # Refund references must be available as soon as the order is created,
         # even when the POS keeps it in draft before registering a payment.
-        records._cr_prefill_reference_from_origin_order()
+        records._cr_run_reference_prefill_hook()
         records._cr_capture_reference_snapshot()
         if draft:
             # Refund orders are often created in draft first ("Devolver") and
@@ -1733,6 +1733,23 @@ def _order_fields(self, ui_order):
     def _cr_capture_reference_on_payment(self):
         """Persist NC reference snapshot at payment time for deterministic XML build."""
         self._cr_capture_reference_snapshot()
+
+    def _cr_run_reference_prefill_hook(self):
+        """Safely execute reference prefill logic for backward-compatible deployments.
+
+        Some environments can temporarily run mixed code revisions during rolling
+        updates. In those windows, `create` may call this hook before
+        `_cr_prefill_reference_from_origin_order` is available on the model class.
+        Avoid hard-crashing POS sync and continue with snapshot capture only.
+        """
+        prefill_method = getattr(self, "_cr_prefill_reference_from_origin_order", None)
+        if callable(prefill_method):
+            prefill_method()
+            return
+        self._logger.warning(
+            "Reference prefill hook unavailable on model %s; continuing without prefill.",
+            self._name,
+        )
 
     def _cr_prefill_reference_from_origin_order(self):
         """Copy reference fields from origin POS order as soon as a refund order exists.
