@@ -1808,9 +1808,10 @@ class PosOrder(models.Model):
     def _generate_pos_order_invoice(self, *args, **kwargs):
         """Create POS invoice without triggering email delivery from POS.
 
-        When an order is marked `to_invoice`, `l10n_cr_einvoice` must own the FE
-        flow (XML/sign/send/email). We force any known email flag to False to
-        prevent POS from preempting that process.
+        We only suppress outbound email side-effects here. The POS frontend
+        expects a real ``account.move`` when ``to_invoice`` is selected, because
+        Odoo's native flow opens/downloads the generated invoice right away.
+        Returning an empty recordset breaks that UX with "Factura de back-end".
         """
         no_email_context = {
             "mail_notify_force_send": False,
@@ -1828,19 +1829,6 @@ class PosOrder(models.Model):
         explicit_context = kwargs.get("context")
         if isinstance(explicit_context, dict):
             kwargs["context"] = {**explicit_context, **no_email_context}
-
-        self.ensure_one()
-        if self._cr_is_marked_for_invoicing() and self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
-            self.write(
-                {
-                    "cr_fe_document_type": "fe",
-                    "cr_fe_status": "pending",
-                    "cr_fe_error_code": False,
-                    "cr_fe_last_error": False,
-                    "cr_fe_next_try": fields.Datetime.now(),
-                }
-            )
-            return self.env["account.move"]
 
         return super(PosOrder, self.with_context(**no_email_context))._generate_pos_order_invoice(*args, **kwargs)
 
