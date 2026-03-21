@@ -121,14 +121,14 @@
                                 <td><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></td>
                                 <td><span t-field="o.cr_fe_document_type"/></td>
                                 <td><span t-esc="o.cr_fe_consecutivo or o.name"/></td>
-                                <td class="text-right"><span t-field="o.cr_exempt_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_nonsubject_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_exonerated_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_taxable_amount_1" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_taxable_amount_2" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_taxable_amount_4" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_taxable_amount_13" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_exempt_amount)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_nonsubject_amount)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_exonerated_amount)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_1)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_2)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_4)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_13)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-field="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td><span t-field="o.cr_fe_status"/></td>
                             </tr>

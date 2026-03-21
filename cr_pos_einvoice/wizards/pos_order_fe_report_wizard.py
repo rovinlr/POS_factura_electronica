@@ -39,6 +39,19 @@ class PosOrderFeReportWizard(models.TransientModel):
         self.ensure_one()
         return self.env["pos.order"].search(self._build_report_domain(), order="date_order asc, id asc")
 
+    def _get_order_report_sign(self, order):
+        """Return -1 for credit-note/refund orders so report amounts are shown as negative."""
+        self.ensure_one()
+        if not order:
+            return 1
+        if order.cr_fe_document_type == "nc" or (order.amount_total or 0.0) < 0:
+            return -1
+        return 1
+
+    def _get_signed_report_amount(self, order, amount):
+        self.ensure_one()
+        return (amount or 0.0) * self._get_order_report_sign(order)
+
     def action_generate_report(self):
         self.ensure_one()
         if self.date_from > self.date_to:
@@ -86,14 +99,14 @@ class PosOrderFeReportWizard(models.TransientModel):
             sheet.write_datetime(row, 0, fields.Datetime.from_string(order.date_order), date_format)
             sheet.write(row, 1, dict(order._fields["cr_fe_document_type"].selection).get(order.cr_fe_document_type, ""), text_format)
             sheet.write(row, 2, order.cr_fe_consecutivo or order.name or "", text_format)
-            sheet.write_number(row, 3, order.cr_exempt_amount or 0.0, amount_format)
-            sheet.write_number(row, 4, order.cr_nonsubject_amount or 0.0, amount_format)
-            sheet.write_number(row, 5, order.cr_exonerated_amount or 0.0, amount_format)
-            sheet.write_number(row, 6, order.cr_taxable_amount_1 or 0.0, amount_format)
-            sheet.write_number(row, 7, order.cr_taxable_amount_2 or 0.0, amount_format)
-            sheet.write_number(row, 8, order.cr_taxable_amount_4 or 0.0, amount_format)
-            sheet.write_number(row, 9, order.cr_taxable_amount_13 or 0.0, amount_format)
-            sheet.write_number(row, 10, order.amount_tax or 0.0, amount_format)
+            sheet.write_number(row, 3, self._get_signed_report_amount(order, order.cr_exempt_amount), amount_format)
+            sheet.write_number(row, 4, self._get_signed_report_amount(order, order.cr_nonsubject_amount), amount_format)
+            sheet.write_number(row, 5, self._get_signed_report_amount(order, order.cr_exonerated_amount), amount_format)
+            sheet.write_number(row, 6, self._get_signed_report_amount(order, order.cr_taxable_amount_1), amount_format)
+            sheet.write_number(row, 7, self._get_signed_report_amount(order, order.cr_taxable_amount_2), amount_format)
+            sheet.write_number(row, 8, self._get_signed_report_amount(order, order.cr_taxable_amount_4), amount_format)
+            sheet.write_number(row, 9, self._get_signed_report_amount(order, order.cr_taxable_amount_13), amount_format)
+            sheet.write_number(row, 10, self._get_signed_report_amount(order, order.amount_tax), amount_format)
             sheet.write_number(row, 11, order.amount_total or 0.0, amount_format)
             sheet.write(row, 12, dict(order._fields["cr_fe_status"].selection).get(order.cr_fe_status, ""), text_format)
             row += 1
