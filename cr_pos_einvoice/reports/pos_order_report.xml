@@ -128,7 +128,7 @@
                         <div style="margin-top: 8px;">
                             <div style="display: flex; justify-content: space-between;">
                                 <span>Subtotal</span>
-                                <span t-esc="o.amount_untaxed" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                <span t-esc="(o.amount_total - o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
                                 <span>Impuesto</span>
