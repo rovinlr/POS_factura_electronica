@@ -1627,6 +1627,7 @@ class PosOrder(models.Model):
             [
                 "cr_fe_document_type",
                 "cr_fe_clave",
+                "cr_fe_consecutivo",
                 "date_order",
                 "cr_fe_reference_document_type",
                 "cr_fe_reference_document_number",
@@ -1645,7 +1646,11 @@ class PosOrder(models.Model):
             "te": "04",
             "nc": "03",
         }.get(origin_vals.get("cr_fe_document_type"), False)
-        number = origin_vals.get("cr_fe_reference_document_number") or origin_vals.get("cr_fe_clave")
+        number = (
+            origin_vals.get("cr_fe_reference_document_number")
+            or origin_vals.get("cr_fe_clave")
+            or origin_vals.get("cr_fe_consecutivo")
+        )
         issue_date = origin_vals.get("cr_fe_reference_issue_date")
         if not issue_date and origin_vals.get("date_order"):
             origin_dt = fields.Datetime.to_datetime(origin_vals["date_order"])

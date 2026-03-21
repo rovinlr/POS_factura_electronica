@@ -244,6 +244,48 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(origin_invoice, ticket_move)
 
+    def test_extract_refund_reference_from_ui_uses_origin_fe_order_data(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        ui_order = {
+            "data": {
+                "lines": [
+                    [0, 0, {"refunded_orderline_id": [321, "origin-line"]}],
+                ]
+            }
+        }
+
+        with patch.object(
+            type(self.env["pos.order.line"]),
+            "search_read",
+            lambda *args, **kwargs: [{"id": 321, "order_id": [99, "POS/099"]}],
+        ), patch.object(
+            type(self.env["pos.order"]),
+            "search_read",
+            lambda *args, **kwargs: [
+                {
+                    "cr_fe_document_type": "fe",
+                    "cr_fe_clave": "50621032600310112345600100001010000000001123456789",
+                    "cr_fe_consecutivo": "00100001010000000001",
+                    "date_order": fields.Datetime.from_string("2026-03-20 11:22:33"),
+                    "cr_fe_reference_document_type": False,
+                    "cr_fe_reference_document_number": False,
+                    "cr_fe_reference_issue_date": False,
+                    "cr_fe_reference_code": False,
+                    "cr_fe_reference_reason": False,
+                }
+            ],
+        ):
+            values = order._cr_extract_refund_reference_from_ui(ui_order)
+
+        self.assertEqual(values.get("cr_fe_reference_document_type"), "01")
+        self.assertEqual(
+            values.get("cr_fe_reference_document_number"),
+            "50621032600310112345600100001010000000001123456789",
+        )
+        self.assertEqual(values.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-03-20"))
+        self.assertEqual(values.get("cr_fe_reference_code"), "01")
+        self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
     def test_should_send_accepted_email_for_fe_te_nc_with_customer_email(self):
         partner = self.env["res.partner"].create({"name": "Cliente POS", "email": "cliente@example.com"})
         config = self.env["pos.config"].new(
