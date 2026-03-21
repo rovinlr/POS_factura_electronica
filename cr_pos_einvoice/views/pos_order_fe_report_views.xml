@@ -8,11 +8,13 @@
                 <field name="date_order" string="Fecha"/>
                 <field name="cr_fe_document_type" string="Tipo"/>
                 <field name="cr_fe_consecutivo" string="Documento"/>
-                <field name="cr_tax_rate_display" string="Impuesto (%)"/>
                 <field name="cr_exempt_amount" string="Exento" sum="Exento"/>
                 <field name="cr_nonsubject_amount" string="No sujeto" sum="No sujeto"/>
                 <field name="cr_exonerated_amount" string="Exonerado" sum="Exonerado"/>
-                <field name="cr_taxable_amount" string="Gravado" sum="Gravado"/>
+                <field name="cr_taxable_amount_1" string="Gravado 1%" sum="Gravado 1%"/>
+                <field name="cr_taxable_amount_2" string="Gravado 2%" sum="Gravado 2%"/>
+                <field name="cr_taxable_amount_4" string="Gravado 4%" sum="Gravado 4%"/>
+                <field name="cr_taxable_amount_13" string="Gravado 13%" sum="Gravado 13%"/>
                 <field name="amount_tax" string="Importe impuesto" sum="Impuesto"/>
                 <field name="amount_total" string="Total" sum="Total"/>
                 <field name="cr_fe_status" string="Estado FE" widget="badge" decoration-success="cr_fe_status == 'accepted'" decoration-danger="cr_fe_status in ('rejected', 'error')" decoration-warning="cr_fe_status in ('pending', 'processing', 'sent', 'error_retry')"/>
@@ -37,14 +39,30 @@
         </field>
     </record>
 
-    <record id="action_pos_order_fe_report" model="ir.actions.act_window">
+    <record id="view_pos_order_fe_report_wizard_form" model="ir.ui.view">
+        <field name="name">pos.order.fe.report.wizard.form</field>
+        <field name="model">pos.order.fe.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Asistente Reporte FE POS">
+                <group>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                    <field name="output_format"/>
+                </group>
+                <footer>
+                    <button name="action_generate_report" type="object" string="Generar" class="btn-primary"/>
+                    <button string="Cancelar" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_pos_order_fe_report_wizard" model="ir.actions.act_window">
         <field name="name">Reporte FE POS</field>
-        <field name="res_model">pos.order</field>
-        <field name="view_mode">list,pivot,graph</field>
-        <field name="view_id" ref="view_pos_order_tree_fe_report"/>
-        <field name="search_view_id" ref="view_pos_order_search_fe_report"/>
-        <field name="domain">[("state", "in", ["paid", "done", "invoiced"])]</field>
-        <field name="context">{'search_default_filter_date_order': 1}</field>
+        <field name="res_model">pos.order.fe.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_pos_order_fe_report_wizard_form"/>
+        <field name="target">new</field>
     </record>
 
     <record id="menu_pos_order_fe_report" model="ir.ui.menu">
@@ -57,18 +75,17 @@
                 or ref('point_of_sale.menu_point_root', raise_if_not_found=False)
             "
         />
-        <field name="action" ref="action_pos_order_fe_report"/>
+        <field name="action" ref="action_pos_order_fe_report_wizard"/>
         <field name="sequence">45</field>
     </record>
 
-    <record id="action_report_pos_order_fe_summary" model="ir.actions.report">
+    <record id="action_report_pos_order_fe_summary_wizard" model="ir.actions.report">
         <field name="name">Reporte FE POS (PDF)</field>
-        <field name="model">pos.order</field>
+        <field name="model">pos.order.fe.report.wizard</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">cr_pos_einvoice.report_pos_order_fe_summary</field>
         <field name="report_file">cr_pos_einvoice.report_pos_order_fe_summary</field>
-        <field name="binding_model_id" ref="point_of_sale.model_pos_order"/>
-        <field name="binding_type">report</field>
+        <field name="binding_model_id" eval="False"/>
         <field name="print_report_name">'Reporte_FE_POS'</field>
     </record>
 
@@ -77,36 +94,40 @@
             <t t-call="web.external_layout">
                 <div class="page">
                     <h2>Reporte FE POS</h2>
-                    <p>
-                        Registros seleccionados:
-                        <span t-esc="len(docs)"/>
-                    </p>
+                    <t t-set="wizard" t-value="docs and docs[0]"/>
+                    <t t-set="orders" t-value="wizard and wizard._get_report_orders() or []"/>
+                    <p>Rango: <span t-esc="wizard.date_from"/> - <span t-esc="wizard.date_to"/></p>
+                    <p>Registros: <span t-esc="len(orders)"/></p>
                     <table class="table table-sm table-bordered" style="width: 100%; font-size: 11px;">
                         <thead>
                             <tr>
                                 <th>Fecha</th>
                                 <th>Tipo</th>
                                 <th>Documento</th>
-                                <th>Impuesto (%)</th>
                                 <th class="text-right">Exento</th>
                                 <th class="text-right">No sujeto</th>
                                 <th class="text-right">Exonerado</th>
-                                <th class="text-right">Gravado</th>
+                                <th class="text-right">Gravado 1%</th>
+                                <th class="text-right">Gravado 2%</th>
+                                <th class="text-right">Gravado 4%</th>
+                                <th class="text-right">Gravado 13%</th>
                                 <th class="text-right">Importe impuesto</th>
                                 <th class="text-right">Total</th>
                                 <th>Estado FE</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr t-foreach="docs" t-as="o">
+                            <tr t-foreach="orders" t-as="o">
                                 <td><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></td>
                                 <td><span t-field="o.cr_fe_document_type"/></td>
                                 <td><span t-esc="o.cr_fe_consecutivo or o.name"/></td>
-                                <td><span t-esc="o.cr_tax_rate_display"/></td>
                                 <td class="text-right"><span t-field="o.cr_exempt_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-field="o.cr_nonsubject_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-field="o.cr_exonerated_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.cr_taxable_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_taxable_amount_1" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_taxable_amount_2" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_taxable_amount_4" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_taxable_amount_13" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-field="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-field="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td><span t-field="o.cr_fe_status"/></td>

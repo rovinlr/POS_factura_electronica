@@ -116,6 +116,30 @@ class PosOrder(models.Model):
         currency_field="currency_id",
         store=False,
     )
+    cr_taxable_amount_1 = fields.Monetary(
+        string="Gravado 1%",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_taxable_amount_2 = fields.Monetary(
+        string="Gravado 2%",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_taxable_amount_4 = fields.Monetary(
+        string="Gravado 4%",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_taxable_amount_13 = fields.Monetary(
+        string="Gravado 13%",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
     cr_exempt_amount = fields.Monetary(
         string="Exento",
         compute="_compute_cr_tax_report_amounts",
@@ -165,10 +189,12 @@ class PosOrder(models.Model):
 
     @api.depends("lines.price_subtotal", "lines.tax_ids_after_fiscal_position")
     def _compute_cr_tax_report_amounts(self):
+        tracked_rates = (1.0, 2.0, 4.0, 13.0)
         for order in self:
             taxable = 0.0
             exempt = 0.0
             rates = set()
+            taxable_by_rate = {rate: 0.0 for rate in tracked_rates}
             for line in order.lines:
                 subtotal = line.price_subtotal or 0.0
                 taxes = line.tax_ids_after_fiscal_position
@@ -177,9 +203,22 @@ class PosOrder(models.Model):
                     taxable += subtotal
                     for tax in positive_taxes:
                         rates.add(f"{tax.amount:g}%")
+                    line_rates = {
+                        float(int(tax.amount) if float(tax.amount).is_integer() else tax.amount)
+                        for tax in positive_taxes
+                        if float(tax.amount) in tracked_rates
+                    }
+                    if line_rates:
+                        allocation = subtotal / len(line_rates)
+                        for rate in line_rates:
+                            taxable_by_rate[rate] += allocation
                 else:
                     exempt += subtotal
             order.cr_taxable_amount = taxable
+            order.cr_taxable_amount_1 = taxable_by_rate[1.0]
+            order.cr_taxable_amount_2 = taxable_by_rate[2.0]
+            order.cr_taxable_amount_4 = taxable_by_rate[4.0]
+            order.cr_taxable_amount_13 = taxable_by_rate[13.0]
             order.cr_exempt_amount = exempt
             # Se dejan en 0.0 para preservar consistencia cuando no se dispone de
             # categorización fiscal explícita en POS por línea.
