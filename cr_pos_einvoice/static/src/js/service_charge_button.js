@@ -4,13 +4,13 @@ import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
 import { Component } from "@odoo/owl";
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
-import { usePos } from "@point_of_sale/app/store/pos_hook";
 
 export class ServiceChargeButton extends Component {
     static template = "cr_pos_einvoice.ServiceChargeButton";
 
     setup() {
-        this.pos = usePos();
+        // Avoid hard dependency on pos_hook (can vary by POS asset version).
+        this.pos = this.env?.services?.pos || this.env?.pos || null;
         this.notification = useService("notification");
     }
 
