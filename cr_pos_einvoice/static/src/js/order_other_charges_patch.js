@@ -8,6 +8,11 @@ const SERVICE_CHARGE_RATE = 0.1;
 
 const roundAmount = (value) => Math.round(value * 100000) / 100000;
 
+const getOrderSubtotal = (order) => {
+    const subtotal = Number(order?.get_total_without_tax?.() ?? order?.getTotalWithoutTax?.() ?? 0);
+    return Number.isFinite(subtotal) ? subtotal : 0;
+};
+
 const computeServiceCharge = (subtotal) => {
     const base = Number(subtotal);
     if (!Number.isFinite(base) || base <= 0) return null;
@@ -53,6 +58,9 @@ const normalizeCharges = (charges, subtotal = null, options = {}) => {
     return normalized;
 };
 
+const computeChargesTotal = (charges) =>
+    roundAmount(charges.reduce((acc, item) => acc + Number(item?.amount || 0), 0));
+
 patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(vals);
@@ -62,17 +70,33 @@ patch(PosOrder.prototype, {
 
     setOtherCharges(charges) {
         this.assertEditable?.();
-        const subtotal = Number(this.get_total_without_tax?.() ?? 0);
+        const subtotal = getOrderSubtotal(this);
         this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: false });
     },
 
     getOtherCharges() {
-        return normalizeCharges(this.cr_other_charges);
+        const subtotal = getOrderSubtotal(this);
+        return normalizeCharges(this.cr_other_charges, subtotal, { forceSubtotalAmount: true });
     },
+
+    getOtherChargesTotal() {
+        return computeChargesTotal(this.getOtherCharges());
+    },
+
+    get_total_with_tax() {
+        const baseTotal = Number(super.get_total_with_tax?.(...arguments) ?? 0);
+        return roundAmount(baseTotal + this.getOtherChargesTotal());
+    },
+
+    getTotalWithTax() {
+        const baseTotal = Number(super.getTotalWithTax?.(...arguments) ?? this.get_total_with_tax());
+        return roundAmount(baseTotal + this.getOtherChargesTotal());
+    },
+
 
     serializeForORM(opts = {}) {
         const data = super.serializeForORM(...arguments);
-        const subtotal = Number(this.get_total_without_tax?.() ?? 0);
+        const subtotal = getOrderSubtotal(this);
         const charges = this.getOtherCharges();
         if (charges.length) {
             this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: true });
