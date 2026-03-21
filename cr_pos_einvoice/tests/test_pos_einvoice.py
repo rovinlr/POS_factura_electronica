@@ -812,6 +812,17 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(order.fp_document_type, "NC")
 
+    def test_compute_fp_document_type_marks_fe_when_order_is_marked_to_invoice(self):
+        order = self.env["pos.order"].new(
+            {"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft", "to_invoice": True}
+        )
+
+        order._compute_cr_fe_document_type()
+        order._compute_fp_pos_fe_fields()
+
+        self.assertEqual(order.cr_fe_document_type, "fe")
+        self.assertEqual(order.fp_document_type, "FE")
+
 
     def test_extract_issue_date_from_clave(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
