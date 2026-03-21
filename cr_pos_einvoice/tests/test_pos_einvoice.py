@@ -328,6 +328,29 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(pdf_attachment.mimetype, "application/pdf")
         self.assertEqual(pdf_attachment.res_model, "pos.order")
 
+    def test_get_or_create_pdf_attachment_supports_qweb_html_report(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/HTML/001"})
+
+        class FakeHtmlReport:
+            model = "pos.order"
+            report_type = "qweb-html"
+
+            def _render_qweb_html(self, record_ids):
+                self.record_ids = record_ids
+                return [b"<html><body>Ticket HTML</body></html>"], "text/html"
+
+        fake_report = FakeHtmlReport()
+        with patch.object(type(order), "_cr_get_pdf_report_action", lambda self: fake_report), patch.object(
+            type(order.env["ir.actions.report"]),
+            "_run_wkhtmltopdf",
+            lambda self, html_bodies, landscape=False, **kwargs: b"%PDF-1.4\n%from-html",
+        ):
+            pdf_attachment = order._cr_get_or_create_pdf_attachment()
+
+        self.assertTrue(pdf_attachment)
+        self.assertEqual(pdf_attachment.mimetype, "application/pdf")
+        self.assertEqual(pdf_attachment.res_model, "pos.order")
+
     def test_get_email_attachments_prefers_receipt_pdf_when_accepted(self):
         order = self.env["pos.order"].create(
             {
