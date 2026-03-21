@@ -1272,10 +1272,11 @@ class TestPosEInvoice(TransactionCase):
         ui_order = {
             "data": {
                 "name": "Order 001",
+                "amount_total": 11600.0,
+                "amount_tax": 1600.0,
                 "other_charges": [
                     {"type": "02", "code": "99", "amount": 1200.5, "currency": "CRC", "description": "Flete"},
-                    {"type": "03", "amount": -10},
-                    {"type": "01", "amount": "invalido"},
+                    {"type": "03", "code": "06", "amount": 1000.0, "description": "Impuesto de servicio 10%"},
                 ],
             }
         }
@@ -1292,5 +1293,15 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertIn("other_charges", payload)
         self.assertEqual(len(payload["other_charges"]), 1)
-        self.assertEqual(payload["other_charges"][0]["description"], "Flete")
+        self.assertEqual(payload["other_charges"][0]["code"], "06")
+        self.assertEqual(payload["other_charges"][0]["description"], "Impuesto de servicio 10%")
+        self.assertEqual(payload["other_charges"][0]["percent"], 10)
         self.assertEqual(payload["other_charges"], payload["otros_cargos"])
+
+    def test_extract_other_charges_defaults_to_service_charge_from_subtotal(self):
+        ui_order = {"data": {"amount_total": 5800.0, "amount_tax": 800.0}}
+        charges = self.env["pos.order"]._cr_extract_other_charges_from_ui(ui_order)
+        self.assertEqual(len(charges), 1)
+        self.assertEqual(charges[0]["code"], "06")
+        self.assertEqual(charges[0]["amount"], 500.0)
+        self.assertEqual(charges[0]["percent"], 10)
