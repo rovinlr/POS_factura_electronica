@@ -94,11 +94,17 @@
         </field>
     </record>
 
-    <menuitem
-        id="menu_cr_hacienda_comprobantes_pos"
-        name="Comprobantes POS"
-        parent="point_of_sale.menu_point_config_product"
-        action="action_cr_hacienda_comprobantes_pos"
-        sequence="80"
-    />
+    <record id="menu_cr_hacienda_comprobantes_pos" model="ir.ui.menu">
+        <field name="name">Comprobantes POS</field>
+        <field
+            name="parent_id"
+            eval="
+                ref('point_of_sale.menu_point_config_product', raise_if_not_found=False)
+                or ref('point_of_sale.menu_point_reporting', raise_if_not_found=False)
+                or ref('point_of_sale.menu_point_root', raise_if_not_found=False)
+            "
+        />
+        <field name="action" ref="action_cr_hacienda_comprobantes_pos"/>
+        <field name="sequence">80</field>
+    </record>
 </odoo>
