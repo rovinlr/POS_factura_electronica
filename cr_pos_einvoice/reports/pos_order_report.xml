@@ -31,6 +31,14 @@
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.basic_layout">
                     <div class="page" style="font-size: 12px; line-height: 1.35; color: #111827;">
+                        <t t-set="doc_type_map" t-value="{'te': 'Tiquete electrónico', 'fe': 'Factura electrónica', 'nc': 'Nota de crédito electrónica', 'nd': 'Nota de débito electrónica'}"/>
+                        <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
+                        <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
+                        <t t-set="company_email" t-value="o.company_id.email or (o.company_id.partner_id and o.company_id.partner_id.email)"/>
+                        <t t-set="company_address" t-value="o.company_id.partner_id and o.company_id.partner_id.contact_address"/>
+                        <t t-set="partner_address" t-value="o.partner_id and o.partner_id.contact_address"/>
+                        <t t-set="partner_phone" t-value="o.partner_id and (o.partner_id.phone or o.partner_id.mobile)"/>
+
                         <div style="text-align: center; margin-bottom: 6px;">
                             <h4 style="margin: 0; font-size: 14px; font-weight: 700;">
                                 <span t-esc="o.company_id.name"/>
@@ -39,8 +47,28 @@
                                 <strong>Identificación:</strong>
                                 <span t-esc="o.company_id.vat"/>
                             </div>
+                            <div t-if="company_email">
+                                <strong>Correo:</strong>
+                                <span t-esc="company_email"/>
+                            </div>
+                            <div t-if="company_phone">
+                                <strong>Teléfono:</strong>
+                                <span t-esc="company_phone"/>
+                            </div>
+                            <div t-if="company_address">
+                                <strong>Dirección:</strong>
+                                <span t-esc="company_address"/>
+                            </div>
                         </div>
 
+                        <div>
+                            <strong>Documento:</strong>
+                            <span t-esc="doc_type_label"/>
+                        </div>
+                        <div t-if="o.cr_fe_consecutivo">
+                            <strong>Consecutivo:</strong>
+                            <span t-esc="o.cr_fe_consecutivo"/>
+                        </div>
                         <div>
                             <strong>Orden:</strong>
                             <span t-esc="o.name or o.pos_reference"/>
@@ -49,17 +77,29 @@
                             <strong>Fecha:</strong>
                             <span t-field="o.date_order" t-options='{"widget": "datetime"}'/>
                         </div>
-                        <div>
-                            <strong>Cliente:</strong>
-                            <span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/>
-                        </div>
-                        <div t-if="o.cr_fe_clave">
-                            <strong>Clave:</strong>
-                            <span t-esc="o.cr_fe_clave" style="word-break: break-all;"/>
-                        </div>
-                        <div t-if="o.cr_fe_consecutivo">
-                            <strong>Consecutivo:</strong>
-                            <span t-esc="o.cr_fe_consecutivo"/>
+
+                        <div style="margin-top: 6px;">
+                            <strong>Datos del cliente</strong>
+                            <div>
+                                <strong>Nombre:</strong>
+                                <span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/>
+                            </div>
+                            <div t-if="o.partner_id and o.partner_id.vat">
+                                <strong>Identificación:</strong>
+                                <span t-esc="o.partner_id.vat"/>
+                            </div>
+                            <div t-if="partner_phone">
+                                <strong>Teléfono:</strong>
+                                <span t-esc="partner_phone"/>
+                            </div>
+                            <div t-if="o.partner_id and o.partner_id.email">
+                                <strong>Correo:</strong>
+                                <span t-esc="o.partner_id.email"/>
+                            </div>
+                            <div t-if="partner_address">
+                                <strong>Dirección:</strong>
+                                <span t-esc="partner_address"/>
+                            </div>
                         </div>
 
                         <table style="width: 100%; margin-top: 8px; border-collapse: collapse;">
@@ -79,15 +119,30 @@
                                         <span t-esc="line.qty"/>
                                     </td>
                                     <td style="text-align: right; padding-top: 2px; vertical-align: top;">
-                                        <span t-esc="line.price_subtotal_incl" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                        <span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
 
-                        <div style="margin-top: 8px; text-align: right;">
-                            <strong>Total:</strong>
-                            <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                        <div style="margin-top: 8px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Subtotal</span>
+                                <span t-esc="o.amount_untaxed" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Impuesto</span>
+                                <span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                                <span>Total</span>
+                                <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </div>
+                        </div>
+
+                        <div t-if="o.cr_fe_clave" style="margin-top: 8px; border-top: 1px solid #d1d5db; padding-top: 6px;">
+                            <strong>Clave:</strong>
+                            <span t-esc="o.cr_fe_clave" style="word-break: break-all;"/>
                         </div>
                     </div>
                 </t>
