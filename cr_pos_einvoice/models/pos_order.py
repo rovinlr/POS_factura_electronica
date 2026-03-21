@@ -361,9 +361,14 @@ class PosOrder(models.Model):
 
     def _cr_get_pos_document_type(self):
         self.ensure_one()
+        # Refunds must always be emitted as NC, even when POS "Facturar" is enabled.
+        # Some FE refund flows keep `to_invoice=True` to preserve accounting intent;
+        # prioritizing refunds here prevents accidental FE emission for devoluciones.
+        if self._cr_is_refund_order_candidate():
+            return "nc"
         if self._cr_is_marked_for_invoicing():
             return "fe"
-        return "nc" if self._cr_is_refund_order_candidate() else "te"
+        return "te"
 
     def _cr_is_refund_order_candidate(self):
         """Detect refund orders reliably, even before they are paid."""
