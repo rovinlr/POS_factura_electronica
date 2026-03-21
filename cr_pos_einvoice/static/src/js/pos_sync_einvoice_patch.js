@@ -44,6 +44,27 @@ const applyFeFields = (order, payload) => {
 
     const paymentMethod = normalizeText(payload.fp_payment_method ?? payload.payment_method);
     if (paymentMethod) order.fp_payment_method = paymentMethod;
+    const emisorName = normalizeText(payload.cr_fe_emisor_name);
+    if (emisorName) order.cr_fe_emisor_name = emisorName;
+    const emisorVat = normalizeText(payload.cr_fe_emisor_vat);
+    if (emisorVat) order.cr_fe_emisor_vat = emisorVat;
+    const emisorEmail = normalizeText(payload.cr_fe_emisor_email);
+    if (emisorEmail) order.cr_fe_emisor_email = emisorEmail;
+    const emisorPhone = normalizeText(payload.cr_fe_emisor_phone);
+    if (emisorPhone) order.cr_fe_emisor_phone = emisorPhone;
+    const emisorAddress = normalizeText(payload.cr_fe_emisor_address);
+    if (emisorAddress) order.cr_fe_emisor_address = emisorAddress;
+
+    const receptorName = normalizeText(payload.cr_fe_receptor_name);
+    if (receptorName) order.cr_fe_receptor_name = receptorName;
+    const receptorVat = normalizeText(payload.cr_fe_receptor_vat);
+    if (receptorVat) order.cr_fe_receptor_vat = receptorVat;
+    const receptorEmail = normalizeText(payload.cr_fe_receptor_email);
+    if (receptorEmail) order.cr_fe_receptor_email = receptorEmail;
+    const receptorPhone = normalizeText(payload.cr_fe_receptor_phone);
+    if (receptorPhone) order.cr_fe_receptor_phone = receptorPhone;
+    const receptorAddress = normalizeText(payload.cr_fe_receptor_address);
+    if (receptorAddress) order.cr_fe_receptor_address = receptorAddress;
 
     // NC references (optional)
     order.cr_fe_reference_document_type = normalizeText(payload.cr_fe_reference_document_type) ?? order.cr_fe_reference_document_type;

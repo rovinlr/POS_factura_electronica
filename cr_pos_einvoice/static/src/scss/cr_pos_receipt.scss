@@ -47,3 +47,33 @@
 .cr-product-col-qty { width: 12%; }
 .cr-product-col-name { width: 70%; word-break: break-word; overflow-wrap: anywhere; }
 .cr-product-col-total { width: 18%; text-align: right; white-space: nowrap; }
+
+.cr-company-block,
+.cr-customer-data,
+.cr-order-meta,
+.cr-legal-footer {
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.cr-company-block .cr-company-name {
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+
+.cr-company-block div,
+.cr-customer-data div,
+.cr-order-meta div,
+.cr-legal-footer div {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.cr-customer-data .cr-title {
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.cr-legal-footer {
+    margin-top: 8px;
+}

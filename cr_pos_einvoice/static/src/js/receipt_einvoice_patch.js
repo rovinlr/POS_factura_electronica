@@ -93,6 +93,18 @@ patch(PosOrder.prototype, {
 
         this.fp_payment_method = normalizeText(source.fp_payment_method ?? this.fp_payment_method);
 
+        this.cr_fe_emisor_name = normalizeText(source.cr_fe_emisor_name ?? this.cr_fe_emisor_name);
+        this.cr_fe_emisor_vat = normalizeText(source.cr_fe_emisor_vat ?? this.cr_fe_emisor_vat);
+        this.cr_fe_emisor_email = normalizeText(source.cr_fe_emisor_email ?? this.cr_fe_emisor_email);
+        this.cr_fe_emisor_phone = normalizeText(source.cr_fe_emisor_phone ?? this.cr_fe_emisor_phone);
+        this.cr_fe_emisor_address = normalizeText(source.cr_fe_emisor_address ?? this.cr_fe_emisor_address);
+
+        this.cr_fe_receptor_name = normalizeText(source.cr_fe_receptor_name ?? this.cr_fe_receptor_name);
+        this.cr_fe_receptor_vat = normalizeText(source.cr_fe_receptor_vat ?? this.cr_fe_receptor_vat);
+        this.cr_fe_receptor_email = normalizeText(source.cr_fe_receptor_email ?? this.cr_fe_receptor_email);
+        this.cr_fe_receptor_phone = normalizeText(source.cr_fe_receptor_phone ?? this.cr_fe_receptor_phone);
+        this.cr_fe_receptor_address = normalizeText(source.cr_fe_receptor_address ?? this.cr_fe_receptor_address);
+
         // Refund reference fields (NC)
         this.cr_fe_reference_document_type = normalizeText(
             source.cr_fe_reference_document_type ?? this.cr_fe_reference_document_type
