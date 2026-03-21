@@ -651,7 +651,7 @@ class TestPosEInvoice(TransactionCase):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
         self.assertEqual(order._cr_get_pos_document_type(), "te")
 
-    def test_should_not_emit_ticket_when_order_to_invoice_flag_is_true(self):
+    def test_should_emit_fe_from_pos_when_order_to_invoice_flag_is_true(self):
         order = self.env["pos.order"].new(
             {
                 "company_id": self.env.company.id,
@@ -662,7 +662,7 @@ class TestPosEInvoice(TransactionCase):
             }
         )
         self.assertTrue(order._cr_is_marked_for_invoicing())
-        self.assertFalse(order._cr_should_emit_ticket())
+        self.assertTrue(order._cr_should_emit_ticket())
 
     def test_invoice_status_to_invoice_does_not_block_te_when_to_invoice_is_false(self):
         order = self.env["pos.order"].new(
@@ -702,7 +702,7 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(captured["context"]["mail_notify_noemail"])
         self.assertTrue(captured["context"]["skip_invoice_send"])
 
-    def test_generate_pos_order_invoice_keeps_native_invoice_creation_when_pos_fe_flag_enabled(self):
+    def test_generate_pos_order_invoice_skips_native_invoice_creation_when_marked_to_invoice(self):
         order = self.env["pos.order"].new(
             {
                 "company_id": self.env.company.id,
@@ -711,16 +711,11 @@ class TestPosEInvoice(TransactionCase):
                 "config_id": self.config.id,
             }
         )
-        order.config_id.cr_fe_use_pos_flow_for_invoiced_orders = True
-        marker = object()
-
-        with patch(
-            "odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice",
-            lambda self, *args, **kwargs: marker,
-        ):
+        with patch("odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice") as parent_generate:
             result = order._generate_pos_order_invoice()
 
-        self.assertIs(result, marker)
+        self.assertFalse(parent_generate.called)
+        self.assertFalse(result)
 
 
     def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
