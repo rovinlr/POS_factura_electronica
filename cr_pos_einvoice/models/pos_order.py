@@ -29,6 +29,12 @@ class PosOrder(models.Model):
         copy=False,
         help="JSON canónico con la colección de Otros Cargos para FE CR v4.4.",
     )
+    cr_other_charges_amount = fields.Monetary(
+        string="Otros cargos",
+        compute="_compute_cr_other_charges_amount",
+        currency_field="currency_id",
+        store=False,
+    )
     cr_fe_document_type = fields.Selection(
         [("te", "Tiquete Electrónico"), ("fe", "Factura Electrónica"), ("nc", "Nota de Crédito")],
         string="Tipo documento FE",
@@ -121,6 +127,12 @@ class PosOrder(models.Model):
                 order.cr_fe_document_type = order._cr_get_pos_document_type()
             else:
                 order.cr_fe_document_type = False
+
+    @api.depends("cr_other_charges_json")
+    def _compute_cr_other_charges_amount(self):
+        for order in self:
+            charges = order._cr_normalize_other_charges(order.cr_other_charges_json)
+            order.cr_other_charges_amount = sum(float(charge.get("amount") or 0.0) for charge in charges)
 
     def _compute_cr_fe_attachment_ids(self):
         attachments_by_order = defaultdict(lambda: self.env["ir.attachment"])

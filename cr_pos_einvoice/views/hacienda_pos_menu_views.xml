@@ -59,6 +59,7 @@
                             <field name="fp_economic_activity_id" string="Actividad económica" readonly="1"/>
                             <field name="fp_payment_method" string="Medio de pago" readonly="1"/>
                             <field name="amount_tax" string="Impuesto" readonly="1"/>
+                            <field name="cr_other_charges_amount" string="Otros cargos" readonly="1"/>
                             <field name="amount_total" string="Importe total" readonly="1"/>
                             <field name="state" string="Estado contable" readonly="1"/>
                             <field name="account_move" string="Factura contable" readonly="1"/>

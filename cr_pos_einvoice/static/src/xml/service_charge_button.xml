@@ -4,7 +4,7 @@
         <xpath expr="//div[hasclass('control-buttons')]" position="inside">
             <button
                 class="control-button"
-                t-on-click="onClickServiceCharge"
+                t-on-click.stop.prevent="() => this.onClickServiceCharge()"
                 t-att-title="isServiceChargeActive ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
             >
                 <i class="fa fa-percent me-1" role="img" aria-label="Servicio"/>
