@@ -13,6 +13,17 @@ const findReceiptHtml = () => {
     return receiptNode?.outerHTML || null;
 };
 
+const resolveOrderId = async (screen) => {
+    const order = screen.currentOrder || screen.pos?.get_order?.();
+    if (!order) return null;
+    let orderId = Number(order.id);
+    for (let i = 0; i < 12 && !Number.isInteger(orderId); i++) {
+        await delay(250);
+        orderId = Number(order.id);
+    }
+    return Number.isInteger(orderId) ? orderId : null;
+};
+
 patch(ReceiptScreen.prototype, {
     setup() {
         super.setup(...arguments);
@@ -26,14 +37,7 @@ patch(ReceiptScreen.prototype, {
 
     async _crCaptureReceiptHtml() {
         if (this._crReceiptHtmlCaptured) return;
-        const order = this.pos?.get_order?.();
-        if (!order) return;
-
-        let orderId = Number(order.id);
-        for (let i = 0; i < 12 && !Number.isInteger(orderId); i++) {
-            await delay(250);
-            orderId = Number(order.id);
-        }
+        const orderId = await resolveOrderId(this);
         if (!Number.isInteger(orderId)) return;
 
         let html = findReceiptHtml();
@@ -50,5 +54,47 @@ patch(ReceiptScreen.prototype, {
             // Best effort: FE PDF can still fallback to backend report rendering.
         }
     },
-});
 
+    /**
+     * Replace POS native backend-invoice flow for "Facturar" in ReceiptScreen.
+     * In this module, FE is produced from pos.order and no account.move should
+     * be created from the POS button.
+     */
+    async _crHandleInvoiceButton() {
+        const orderId = await resolveOrderId(this);
+        if (!orderId) return false;
+        try {
+            const action = await this.pos.data.call("pos.order", "action_cr_generate_pdf_attachment", [[orderId]]);
+            if (action?.url) {
+                window.open(action.url, "_blank", "noopener,noreferrer");
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    async onInvoiceOrder() {
+        const handled = await this._crHandleInvoiceButton();
+        if (handled) return;
+        if (super.onInvoiceOrder) {
+            await super.onInvoiceOrder(...arguments);
+        }
+    },
+
+    async _onClickInvoice() {
+        const handled = await this._crHandleInvoiceButton();
+        if (handled) return;
+        if (super._onClickInvoice) {
+            await super._onClickInvoice(...arguments);
+        }
+    },
+
+    async invoiceOrder() {
+        const handled = await this._crHandleInvoiceButton();
+        if (handled) return;
+        if (super.invoiceOrder) {
+            await super.invoiceOrder(...arguments);
+        }
+    },
+});

@@ -799,6 +799,7 @@ class PosOrder(models.Model):
         preferred_pos_xmlids = [
             "point_of_sale.report_invoice",  # legacy/community variants
             "point_of_sale.pos_ticket",  # POS receipt in newer versions
+            "point_of_sale.action_report_pos_order",  # Odoo 19 variants
         ]
         for xmlid in preferred_pos_xmlids:
             report = self.env.ref(xmlid, raise_if_not_found=False)
@@ -806,7 +807,7 @@ class PosOrder(models.Model):
                 return report
 
         pos_report = self.env["ir.actions.report"].search(
-            [("model", "=", "pos.order"), ("report_type", "=", "qweb-pdf")],
+            [("model", "=", "pos.order"), ("report_type", "in", ("qweb-pdf", "qweb-html"))],
             order="id asc",
             limit=1,
         )
