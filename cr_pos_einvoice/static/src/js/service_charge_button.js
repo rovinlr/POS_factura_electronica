@@ -3,12 +3,13 @@
 import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
+import { usePos } from "@point_of_sale/app/hooks/pos_hook";
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 
 patch(ControlButtons.prototype, {
     setup() {
         super.setup(...arguments);
-        this.pos = this.env?.services?.pos || this.env?.pos || null;
+        this.pos = usePos();
         this.notification = useService("notification");
     },
 
