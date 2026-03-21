@@ -115,7 +115,7 @@ class PosOrder(models.Model):
                 # Preconfigure NC as soon as a refund order exists (before payment)
                 # so FE references can be prepared deterministically.
                 order.cr_fe_document_type = "nc"
-            elif order._cr_is_marked_for_invoicing() and order.config_id and order.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
+            elif order._cr_is_marked_for_invoicing():
                 order.cr_fe_document_type = "fe"
             elif order.state in ("paid", "done", "invoiced"):
                 order.cr_fe_document_type = order._cr_get_pos_document_type()
@@ -340,11 +340,14 @@ class PosOrder(models.Model):
         return invoice_status in ("to invoice", "to_invoice", "invoiced")
 
     def _cr_requires_account_move_flow(self):
-        """Return True when this order must delegate FE lifecycle to account.move."""
+        """Return True when this order must delegate FE lifecycle to account.move.
+
+        Enterprise decision (CR FE bridge): for POS orders marked as "Facturar",
+        FE is emitted from ``pos.order`` (document type FE) and no customer
+        invoice is generated automatically from POS.
+        """
         self.ensure_one()
-        if not self._cr_is_marked_for_invoicing():
-            return False
-        return not bool(self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders)
+        return False
 
     def _cr_should_emit_ticket(self):
         self.ensure_one()
@@ -358,7 +361,7 @@ class PosOrder(models.Model):
 
     def _cr_get_pos_document_type(self):
         self.ensure_one()
-        if self._cr_is_marked_for_invoicing() and self.config_id and self.config_id.cr_fe_use_pos_flow_for_invoiced_orders:
+        if self._cr_is_marked_for_invoicing():
             return "fe"
         return "nc" if self._cr_is_refund_order_candidate() else "te"
 
@@ -1806,13 +1809,14 @@ class PosOrder(models.Model):
         return vals
 
     def _generate_pos_order_invoice(self, *args, **kwargs):
-        """Create POS invoice without triggering email delivery from POS.
+        """Prevent POS invoice creation and avoid invoice PDF download in-session.
 
-        We only suppress outbound email side-effects here. The POS frontend
-        expects a real ``account.move`` when ``to_invoice`` is selected, because
-        Odoo's native flow opens/downloads the generated invoice right away.
-        Returning an empty recordset breaks that UX with "Factura de back-end".
+        CR FE flow for this addon is generated from ``pos.order`` (TE/FE/NC),
+        therefore ``to_invoice`` must not create ``account.move`` in POS.
         """
+        if self._cr_is_marked_for_invoicing():
+            return self.env["account.move"]
+
         no_email_context = {
             "mail_notify_force_send": False,
             "mail_notify_noemail": True,
