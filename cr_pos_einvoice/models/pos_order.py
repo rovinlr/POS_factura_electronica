@@ -228,10 +228,23 @@ class PosOrder(models.Model):
                 return selection
         return [("01", "Efectivo")]
 
-    @api.depends("config_id.fp_economic_activity_id", "payment_ids.amount", "payment_ids.payment_method_id", "lines.refunded_orderline_id", "amount_total")
+    @api.depends(
+        "cr_fe_document_type",
+        "to_invoice",
+        "account_move",
+        "account_move.move_type",
+        "account_move.state",
+        "config_id.fp_economic_activity_id",
+        "payment_ids.amount",
+        "payment_ids.payment_method_id",
+        "lines.refunded_orderline_id",
+        "amount_total",
+    )
     def _compute_fp_pos_fe_fields(self):
         for order in self:
-            doc_type = "NC" if order._cr_is_refund_order_candidate() else ("FE" if order._cr_has_real_invoice_move() else "TE")
+            doc_type = (order.cr_fe_document_type or order._cr_get_pos_document_type() or "te").upper()
+            if doc_type not in {"TE", "FE", "NC"}:
+                doc_type = "TE"
             method = order._cr_get_primary_payment_method() if order.payment_ids else self.env["pos.payment.method"]
             order.fp_document_type = doc_type
             order.fp_sale_condition = method.fp_sale_condition if method else False
