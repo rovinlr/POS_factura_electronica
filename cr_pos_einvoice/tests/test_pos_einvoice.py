@@ -232,6 +232,13 @@ class TestPosEInvoice(TransactionCase):
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), "Devolución de mercadería")
 
+    def test_get_pos_document_type_prioritizes_refund_over_to_invoice(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+
+        with patch.object(type(order), "_cr_is_refund_order_candidate", lambda self: True), patch.object(
+            type(order), "_cr_is_marked_for_invoicing", lambda self: True
+        ):
+            self.assertEqual(order._cr_get_pos_document_type(), "nc")
 
     def test_get_origin_invoice_for_refund_uses_origin_ticket_move_when_not_invoiced(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
