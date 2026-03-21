@@ -47,13 +47,15 @@
         <field name="context">{'search_default_filter_date_order': 1}</field>
     </record>
 
-    <menuitem
-        id="menu_pos_order_fe_report"
-        name="Reporte FE POS"
-        parent="point_of_sale.menu_point_reporting"
-        action="action_pos_order_fe_report"
-        sequence="45"
-    />
+    <record id="menu_pos_order_fe_report" model="ir.ui.menu">
+        <field name="name">Reporte FE POS</field>
+        <field
+            name="parent_id"
+            eval="ref('point_of_sale.menu_point_reporting', raise_if_not_found=False) or ref('point_of_sale.menu_point_config_product')"
+        />
+        <field name="action" ref="action_pos_order_fe_report"/>
+        <field name="sequence">45</field>
+    </record>
 
     <record id="action_report_pos_order_fe_summary" model="ir.actions.report">
         <field name="name">Reporte FE POS (PDF)</field>
