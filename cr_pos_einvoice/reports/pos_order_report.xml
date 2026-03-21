@@ -37,7 +37,7 @@
                         <t t-set="company_email" t-value="o.company_id.email or (o.company_id.partner_id and o.company_id.partner_id.email)"/>
                         <t t-set="company_address" t-value="o.company_id.partner_id and o.company_id.partner_id.contact_address"/>
                         <t t-set="partner_address" t-value="o.partner_id and o.partner_id.contact_address"/>
-                        <t t-set="partner_phone" t-value="o.partner_id and (o.partner_id.phone or o.partner_id.mobile)"/>
+                        <t t-set="partner_phone" t-value="o._cr_get_partner_phone(o.partner_id)"/>
 
                         <div style="text-align: center; margin-bottom: 6px;">
                             <h4 style="margin: 0; font-size: 14px; font-weight: 700;">

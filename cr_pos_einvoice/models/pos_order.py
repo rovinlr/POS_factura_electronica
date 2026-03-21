@@ -216,6 +216,16 @@ class PosOrder(models.Model):
             )
         )
 
+    def _cr_get_partner_phone(self, partner):
+        """Return partner phone with safe fallback for optional `mobile` field."""
+        if not partner:
+            return False
+        if partner.phone:
+            return partner.phone
+        if "mobile" in partner._fields:
+            return partner.mobile
+        return False
+
     def _selection_fp_document_type(self):
         field = self.env["account.move"]._fields.get("fp_document_type")
         if field and field.selection:
@@ -1432,12 +1442,12 @@ class PosOrder(models.Model):
             "cr_fe_emisor_name": order.company_id.name,
             "cr_fe_emisor_vat": order.company_id.vat,
             "cr_fe_emisor_email": company_partner.email,
-            "cr_fe_emisor_phone": company_partner.phone or company_partner.mobile,
+            "cr_fe_emisor_phone": order._cr_get_partner_phone(company_partner),
             "cr_fe_emisor_address": ", ".join([part for part in emisor_address_parts if part]),
             "cr_fe_receptor_name": receptor_partner.name if receptor_partner else False,
             "cr_fe_receptor_vat": receptor_partner.vat if receptor_partner else False,
             "cr_fe_receptor_email": receptor_partner.email if receptor_partner else False,
-            "cr_fe_receptor_phone": (receptor_partner.phone or receptor_partner.mobile) if receptor_partner else False,
+            "cr_fe_receptor_phone": order._cr_get_partner_phone(receptor_partner),
             "cr_fe_receptor_address": ", ".join([part for part in receptor_address_parts if part]),
         }
 
