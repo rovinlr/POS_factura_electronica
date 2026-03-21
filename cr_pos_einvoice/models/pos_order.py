@@ -1499,16 +1499,60 @@ class PosOrder(models.Model):
         if not isinstance(ui_order, dict):
             return []
         payload = ui_order.get("data", ui_order)
+        if not isinstance(payload, dict):
+            return []
+        subtotal = self._cr_extract_subtotal_from_ui_payload(payload)
         candidates = (
             payload.get("cr_other_charges"),
             payload.get("other_charges"),
             payload.get("otros_cargos"),
         )
         for candidate in candidates:
-            normalized = self._cr_normalize_other_charges(candidate)
+            normalized = self._cr_normalize_other_charges(candidate, subtotal=subtotal)
             if normalized:
                 return normalized
         return []
+
+    @api.model
+    def _cr_extract_subtotal_from_ui_payload(self, payload):
+        if not isinstance(payload, dict):
+            return 0.0
+        subtotal_candidates = (
+            payload.get("amount_subtotal"),
+            payload.get("subtotal"),
+            payload.get("total_without_tax"),
+        )
+        for candidate in subtotal_candidates:
+            try:
+                amount = float(candidate)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                return amount
+        try:
+            amount_total = float(payload.get("amount_total", 0.0))
+            amount_tax = float(payload.get("amount_tax", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+        subtotal = amount_total - amount_tax
+        return subtotal if subtotal > 0 else 0.0
+
+    @api.model
+    def _cr_build_service_charge(self, subtotal):
+        try:
+            base = float(subtotal or 0.0)
+        except (TypeError, ValueError):
+            return {}
+        if base <= 0:
+            return {}
+        return {
+            "type": "01",
+            "code": "06",
+            "amount": round(base * 0.10, 5),
+            "currency": "CRC",
+            "description": "Impuesto de servicio 10%",
+            "percent": 10,
+        }
 
     @api.model
     def _cr_extract_refund_reference_from_ui(self, ui_order):
@@ -1597,7 +1641,7 @@ class PosOrder(models.Model):
             "cr_fe_reference_reason": origin_vals.get("cr_fe_reference_reason") or _("Devolución de mercadería"),
         }
 
-    def _cr_normalize_other_charges(self, raw_charges):
+    def _cr_normalize_other_charges(self, raw_charges, subtotal=0.0):
         if not raw_charges:
             return []
         if isinstance(raw_charges, str):
@@ -1612,27 +1656,27 @@ class PosOrder(models.Model):
         for charge in raw_charges:
             if not isinstance(charge, dict):
                 continue
+            charge_code = str(charge.get("code") or charge.get("codigo") or "")
+            if charge_code and charge_code != "06":
+                continue
+            service_charge = self._cr_build_service_charge(subtotal)
             amount = charge.get("amount", charge.get("monto"))
+            if amount in (False, None, "") and service_charge:
+                amount = service_charge["amount"]
             try:
                 amount = float(amount)
             except (TypeError, ValueError):
                 continue
             if amount <= 0:
                 continue
-            charge_type = (
-                charge.get("type")
-                or charge.get("tipo")
-                or charge.get("charge_type")
-                or "99"
-            )
             normalized.append(
                 {
-                    "type": str(charge_type),
-                    "code": str(charge.get("code") or charge.get("codigo") or "01"),
-                    "amount": amount,
+                    "type": str(charge.get("type") or charge.get("tipo") or charge.get("charge_type") or "01"),
+                    "code": "06",
+                    "amount": round(amount, 5),
                     "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
-                    "description": str(charge.get("description") or charge.get("detalle") or "Cargo adicional POS"),
-                    "percent": charge.get("percent", charge.get("porcentaje")),
+                    "description": str(charge.get("description") or charge.get("detalle") or "Impuesto de servicio 10%"),
+                    "percent": charge.get("percent", charge.get("porcentaje")) or 10,
                 }
             )
         return normalized
