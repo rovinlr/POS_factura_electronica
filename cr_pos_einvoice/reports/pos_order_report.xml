@@ -29,19 +29,25 @@
     <template id="report_pos_order_ticket_cr">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="o">
-                <t t-set="company" t-value="o.company_id"/>
-                <t t-call="web.external_layout_standard">
-                    <div class="page">
-                        <h3 style="margin-bottom: 4px;">
-                            <span t-esc="o.company_id.name"/>
-                        </h3>
+                <t t-call="web.basic_layout">
+                    <div class="page" style="font-size: 12px; line-height: 1.35; color: #111827;">
+                        <div style="text-align: center; margin-bottom: 6px;">
+                            <h4 style="margin: 0; font-size: 14px; font-weight: 700;">
+                                <span t-esc="o.company_id.name"/>
+                            </h4>
+                            <div t-if="o.company_id.vat" style="margin-top: 2px;">
+                                <strong>Identificación:</strong>
+                                <span t-esc="o.company_id.vat"/>
+                            </div>
+                        </div>
+
                         <div>
                             <strong>Orden:</strong>
                             <span t-esc="o.name or o.pos_reference"/>
                         </div>
                         <div t-if="o.date_order">
                             <strong>Fecha:</strong>
-                            <span t-esc="o.date_order"/>
+                            <span t-field="o.date_order" t-options='{"widget": "datetime"}'/>
                         </div>
                         <div>
                             <strong>Cliente:</strong>
@@ -49,7 +55,7 @@
                         </div>
                         <div t-if="o.cr_fe_clave">
                             <strong>Clave:</strong>
-                            <span t-esc="o.cr_fe_clave"/>
+                            <span t-esc="o.cr_fe_clave" style="word-break: break-all;"/>
                         </div>
                         <div t-if="o.cr_fe_consecutivo">
                             <strong>Consecutivo:</strong>
@@ -59,20 +65,20 @@
                         <table style="width: 100%; margin-top: 8px; border-collapse: collapse;">
                             <thead>
                                 <tr>
-                                    <th style="text-align: left; border-bottom: 1px solid #999;">Producto</th>
-                                    <th style="text-align: right; border-bottom: 1px solid #999;">Cant.</th>
-                                    <th style="text-align: right; border-bottom: 1px solid #999;">Subtotal</th>
+                                    <th style="text-align: left; border-bottom: 1px solid #999; padding: 2px 0;">Producto</th>
+                                    <th style="text-align: right; border-bottom: 1px solid #999; padding: 2px 0;">Cant.</th>
+                                    <th style="text-align: right; border-bottom: 1px solid #999; padding: 2px 0;">Subtotal</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="o.lines" t-as="line">
-                                    <td>
+                                    <td style="padding-top: 2px; vertical-align: top;">
                                         <span t-esc="line.full_product_name or line.product_id.display_name"/>
                                     </td>
-                                    <td style="text-align: right;">
+                                    <td style="text-align: right; padding-top: 2px; vertical-align: top;">
                                         <span t-esc="line.qty"/>
                                     </td>
-                                    <td style="text-align: right;">
+                                    <td style="text-align: right; padding-top: 2px; vertical-align: top;">
                                         <span t-esc="line.price_subtotal_incl" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                                     </td>
                                 </tr>
@@ -80,10 +86,8 @@
                         </table>
 
                         <div style="margin-top: 8px; text-align: right;">
-                            <div>
-                                <strong>Total:</strong>
-                                <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
-                            </div>
+                            <strong>Total:</strong>
+                            <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                         </div>
                     </div>
                 </t>
