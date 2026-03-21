@@ -77,3 +77,34 @@
 .cr-legal-footer {
     margin-top: 8px;
 }
+
+.cr-totals-right {
+    text-align: right;
+}
+
+.cr-totals-right > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cr-rate-summary {
+    border-top: 1px solid #d6d6d6;
+    margin-top: 6px;
+    padding-top: 6px;
+}
+
+.cr-rate-summary-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.cr-rate-summary-line .cr-rate-label {
+    font-weight: 600;
+}
+
+.cr-rate-summary-line .cr-rate-values {
+    text-align: right;
+    white-space: nowrap;
+}

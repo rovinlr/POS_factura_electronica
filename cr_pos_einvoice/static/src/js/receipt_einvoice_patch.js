@@ -101,6 +101,66 @@ const formatDateDDMMYYYY = (value) => {
     return null;
 };
 
+
+const formatCrAmount = (value, currencySymbol = "") => {
+    const amount = Number(value || 0);
+    const formatted = new Intl.NumberFormat("es-CR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(amount);
+    return currencySymbol ? `${currencySymbol} ${formatted}` : formatted;
+};
+
+const classifyTaxBucket = (tax) => {
+    const name = normalizeText(tax?.name)?.toLowerCase() || "";
+    const code = normalizeText(tax?.l10n_cr_tax_code || tax?.tax_code)?.toLowerCase() || "";
+    if (name.includes("exoner") || code.includes("exo")) return "Exo";
+    if (name.includes("exento") || code.includes("exe")) return "Exe";
+    if (name.includes("no sujeto") || name.includes("no_sujeto") || code.includes("nos")) return "NoS";
+
+    const rate = Number(tax?.amount || 0);
+    if (Number.isFinite(rate)) {
+        if (Math.abs(rate - 13) < 0.0001) return "13%";
+        if (Math.abs(rate) < 0.0001) return "0%";
+        return `${rate}%`;
+    }
+    return "0%";
+};
+
+const buildTaxSummaryLines = (order, printData = {}) => {
+    const baseBuckets = ["13%", "0%", "Exe", "Exo", "NoS"];
+    const buckets = new Map(baseBuckets.map((label) => [label, { label, base: 0, tax: 0 }]));
+    const orderLines = order?.get_orderlines?.() || [];
+
+    for (const line of orderLines) {
+        const prices = line?.get_all_prices?.() || {};
+        const base = Number(prices.priceWithoutTax ?? prices.price_without_tax ?? 0);
+        const taxAmount = Number(prices.tax ?? prices.taxAmount ?? 0);
+        const taxes = line?.get_taxes?.() || [];
+
+        let label = "0%";
+        if (taxes.length) {
+            label = classifyTaxBucket(taxes[0]);
+        }
+        if (!buckets.has(label)) {
+            buckets.set(label, { label, base: 0, tax: 0 });
+        }
+        const bucket = buckets.get(label);
+        bucket.base += base;
+        bucket.tax += taxAmount;
+    }
+
+    const currencySymbol = printData.currency?.symbol || order?.pos?.currency?.symbol || "";
+
+    return Array.from(buckets.values())
+        .filter((line) => line.base || line.tax || baseBuckets.includes(line.label))
+        .map((line) => ({
+            ...line,
+            formatted_base: formatCrAmount(line.base, currencySymbol),
+            formatted_tax: formatCrAmount(line.tax, currencySymbol),
+        }));
+};
+
 const buildReferencePayload = (order) => {
     const documentType = normalizeText(order.cr_fe_reference_document_type);
     const number = normalizeText(order.cr_fe_reference_document_number);
@@ -181,6 +241,7 @@ patch(PosOrder.prototype, {
             formatDateDDMMYYYY(data.date_order) ||
             formatDateDDMMYYYY(data.date) ||
             null;
+        data.cr_tax_summary_lines = buildTaxSummaryLines(this, data);
         return data;
     },
 
@@ -194,6 +255,7 @@ patch(PosOrder.prototype, {
             formatDateDDMMYYYY(data.date_order) ||
             formatDateDDMMYYYY(data.date) ||
             null;
+        data.cr_tax_summary_lines = buildTaxSummaryLines(this, data);
         return data;
     },
 
