@@ -2,25 +2,14 @@
 <templates id="template" xml:space="preserve">
 
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//ReceiptHeader" position="replace">
-                        <t t-set="partner" t-value="(order &amp;&amp; order.getPartner &amp;&amp; order.getPartner()) || order.partner_id || {}"/>
+        <xpath expr="//ReceiptHeader" position="after">
+            <t t-set="partner" t-value="(order &amp;&amp; order.getPartner &amp;&amp; order.getPartner()) || order.partner_id || {}"/>
             <t t-set="document_type" t-value="((order.cr_fe_document_type || '') + '').toLowerCase()"/>
             <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : (document_type === 'nd' ? 'Nota de débito electrónica' : 'Comprobante electrónico')))"/>
-            <t t-set="order_date_raw" t-value="(order.date_order || order.date || '') + ''"/>
-            <t t-set="order_date_iso" t-value="order_date_raw.length &gt;= 10 ? order_date_raw.slice(0, 10) : ''"/>
-            <t t-set="order_date_ddmmyyyy" t-value="order_date_iso ? (order_date_iso.slice(8, 10) + '/' + order_date_iso.slice(5, 7) + '/' + order_date_iso.slice(0, 4)) : ''"/>
-            <t t-set="emisor_address" t-value="order.cr_fe_emisor_address || ''"/>
+            <t t-set="order_date_ddmmyyyy" t-value="order.cr_order_date_ddmmyyyy || ''"/>
             <t t-set="customer_address" t-value="order.cr_fe_receptor_address || partner.contact_address || partner.street || ''"/>
 
-            <div class="cr-company-block cr-center">
-                <div class="cr-company-name"><t t-esc="order.cr_fe_emisor_name || ''"/></div>
-                <div t-if="order.cr_fe_emisor_vat"><strong>Identificación:</strong> <t t-esc="order.cr_fe_emisor_vat"/></div>
-                <div t-if="order.cr_fe_emisor_email"><strong>Correo:</strong> <t t-esc="order.cr_fe_emisor_email"/></div>
-                <div t-if="order.cr_fe_emisor_phone"><strong>Teléfono:</strong> <t t-esc="order.cr_fe_emisor_phone"/></div>
-                <div t-if="emisor_address"><strong>Dirección:</strong> <t t-esc="emisor_address"/></div>
-            </div>
-
-            <div class="cr-block cr-center cr-order-meta">
+            <div class="cr-block cr-center cr-order-meta" t-if="order.name || order.pos_reference || order_date_ddmmyyyy">
                 <div><strong>Orden:</strong> <t t-esc="order.name || order.pos_reference || ''"/></div>
                 <div t-if="order_date_ddmmyyyy"><strong>Fecha:</strong> <t t-esc="order_date_ddmmyyyy"/></div>
             </div>
@@ -39,12 +28,6 @@
             <div class="cr-block cr-center cr-fe-doc-header">
                 <div class="cr-fe-doc-type"><strong><t t-esc="document_type_name"/></strong></div>
                 <div class="cr-fe-consecutivo" t-if="order.cr_fe_consecutivo"><t t-esc="order.cr_fe_consecutivo"/></div>
-            </div>
-
-            <div class="cr-product-lines-head">
-                <span class="cr-product-col-qty">Cant</span>
-                <span class="cr-product-col-name">Descripción</span>
-                <span class="cr-product-col-total">Importe</span>
             </div>
         </xpath>
     </t>

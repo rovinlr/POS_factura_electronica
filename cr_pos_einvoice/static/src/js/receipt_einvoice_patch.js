@@ -53,6 +53,54 @@ const normalizeDate = (value) => {
     return null;
 };
 
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const formatDateDDMMYYYY = (value) => {
+    if (value === undefined || value === null || value === false) return null;
+
+    if (typeof value?.toFormat === "function") {
+        const formatted = value.toFormat("dd/MM/yyyy");
+        return normalizeText(formatted);
+    }
+
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return null;
+        return `${pad2(value.getDate())}/${pad2(value.getMonth() + 1)}/${value.getFullYear()}`;
+    }
+
+    if (typeof value === "number") {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+    }
+
+    const raw = normalizeText(value);
+    if (!raw) return null;
+
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+        return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    }
+
+    const dmyMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (dmyMatch) {
+        return `${dmyMatch[1]}/${dmyMatch[2]}/${dmyMatch[3]}`;
+    }
+
+    const mdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (mdyMatch) {
+        return `${pad2(mdyMatch[2])}/${pad2(mdyMatch[1])}/${mdyMatch[3]}`;
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+        return `${pad2(parsed.getDate())}/${pad2(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
+    }
+
+    return null;
+};
+
 const buildReferencePayload = (order) => {
     const documentType = normalizeText(order.cr_fe_reference_document_type);
     const number = normalizeText(order.cr_fe_reference_document_number);
@@ -121,6 +169,32 @@ patch(PosOrder.prototype, {
         this.cr_fe_reference_reason = normalizeText(
             source.cr_fe_reference_reason ?? this.cr_fe_reference_reason
         );
+    },
+
+    export_for_printing() {
+        const parent = Object.getPrototypeOf(PosOrder.prototype);
+        const data = parent.export_for_printing
+            ? parent.export_for_printing.call(this, ...arguments)
+            : {};
+        data.cr_order_date_ddmmyyyy =
+            formatDateDDMMYYYY(data.date?.local) ||
+            formatDateDDMMYYYY(data.date_order) ||
+            formatDateDDMMYYYY(data.date) ||
+            null;
+        return data;
+    },
+
+    exportForPrinting() {
+        const parent = Object.getPrototypeOf(PosOrder.prototype);
+        const data = parent.exportForPrinting
+            ? parent.exportForPrinting.call(this, ...arguments)
+            : this.export_for_printing(...arguments);
+        data.cr_order_date_ddmmyyyy =
+            formatDateDDMMYYYY(data.date?.local) ||
+            formatDateDDMMYYYY(data.date_order) ||
+            formatDateDDMMYYYY(data.date) ||
+            null;
+        return data;
     },
 
     serializeForORM(opts = {}) {
