@@ -35,8 +35,8 @@
                         <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
                         <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
                         <t t-set="company_email" t-value="o.company_id.email or (o.company_id.partner_id and o.company_id.partner_id.email)"/>
-                        <t t-set="company_address" t-value="o.company_id.partner_id and o.company_id.partner_id.contact_address"/>
-                        <t t-set="partner_address" t-value="o.partner_id and o.partner_id.contact_address"/>
+                        <t t-set="company_address" t-value="o.company_id.partner_id and o.company_id.partner_id._display_address(without_company=True)"/>
+                        <t t-set="partner_address" t-value="o.partner_id and o.partner_id._display_address(without_company=True)"/>
                         <t t-set="partner_phone" t-value="o._cr_get_partner_phone(o.partner_id)"/>
 
                         <div style="text-align: center; margin-bottom: 6px;">
@@ -57,7 +57,7 @@
                             </div>
                             <div t-if="company_address">
                                 <strong>Dirección:</strong>
-                                <span t-esc="company_address"/>
+                                <span t-esc="(company_address or '').replace('\n', ' ').strip()"/>
                             </div>
                         </div>
 
@@ -98,7 +98,7 @@
                             </div>
                             <div t-if="partner_address">
                                 <strong>Dirección:</strong>
-                                <span t-esc="partner_address"/>
+                                <span t-esc="(partner_address or '').replace('\n', ' ').strip()"/>
                             </div>
                         </div>
 
@@ -126,23 +126,27 @@
                         </table>
 
                         <div style="margin-top: 8px;">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span>Subtotal</span>
-                                <span t-esc="(o.amount_total - o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px;">
+                                <span style="text-align: right;">Subtotal</span>
+                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="(o.amount_total - o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span>Impuesto</span>
-                                <span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px;">
+                                <span style="text-align: right;">Impuesto</span>
+                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                                <span>Total</span>
-                                <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px; font-weight: 700;">
+                                <span style="text-align: right;">Total</span>
+                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
                         </div>
 
                         <div t-if="o.cr_fe_clave" style="margin-top: 8px; border-top: 1px solid #d1d5db; padding-top: 6px;">
                             <strong>Clave:</strong>
                             <span t-esc="o.cr_fe_clave" style="word-break: break-all;"/>
+                            <div style="margin-top: 6px;">
+                                <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
+                                <div>Versión XML 4.4</div>
+                            </div>
                         </div>
                     </div>
                 </t>
