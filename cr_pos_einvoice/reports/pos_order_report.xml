@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="paperformat_pos_ticket_pdf" model="report.paperformat">
+        <field name="name">POS Ticket CR PDF</field>
+        <field name="default" eval="False"/>
+        <field name="format">custom</field>
+        <field name="page_height">210</field>
+        <field name="page_width">80</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">6</field>
+        <field name="margin_bottom">6</field>
+        <field name="margin_left">4</field>
+        <field name="margin_right">4</field>
+        <field name="dpi">96</field>
+    </record>
+
+    <record id="action_report_pos_order_ticket_cr" model="ir.actions.report">
+        <field name="name">POS Ticket CR</field>
+        <field name="model">pos.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">cr_pos_einvoice.report_pos_order_ticket_cr</field>
+        <field name="report_file">cr_pos_einvoice.report_pos_order_ticket_cr</field>
+        <field name="paperformat_id" ref="cr_pos_einvoice.paperformat_pos_ticket_pdf"/>
+        <field name="print_report_name">'Ticket_%s' % (object.name or object.pos_reference or object.id)</field>
+        <field name="binding_model_id" ref="point_of_sale.model_pos_order"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <template id="report_pos_order_ticket_cr">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="web.external_layout_standard">
+                    <div class="page">
+                        <h3 style="margin-bottom: 4px;">
+                            <span t-esc="o.company_id.name"/>
+                        </h3>
+                        <div>
+                            <strong>Orden:</strong>
+                            <span t-esc="o.name or o.pos_reference"/>
+                        </div>
+                        <div t-if="o.date_order">
+                            <strong>Fecha:</strong>
+                            <span t-esc="o.date_order"/>
+                        </div>
+                        <div>
+                            <strong>Cliente:</strong>
+                            <span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/>
+                        </div>
+                        <div t-if="o.cr_fe_clave">
+                            <strong>Clave:</strong>
+                            <span t-esc="o.cr_fe_clave"/>
+                        </div>
+                        <div t-if="o.cr_fe_consecutivo">
+                            <strong>Consecutivo:</strong>
+                            <span t-esc="o.cr_fe_consecutivo"/>
+                        </div>
+
+                        <table style="width: 100%; margin-top: 8px; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; border-bottom: 1px solid #999;">Producto</th>
+                                    <th style="text-align: right; border-bottom: 1px solid #999;">Cant.</th>
+                                    <th style="text-align: right; border-bottom: 1px solid #999;">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="o.lines" t-as="line">
+                                    <td>
+                                        <span t-esc="line.full_product_name or line.product_id.display_name"/>
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <span t-esc="line.qty"/>
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <span t-esc="line.price_subtotal_incl" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div style="margin-top: 8px; text-align: right;">
+                            <div>
+                                <strong>Total:</strong>
+                                <span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>
