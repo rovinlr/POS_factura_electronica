@@ -1369,6 +1369,23 @@ class PosOrder(models.Model):
                 if not reference_payload.get("reason"):
                     reference_payload["reason"] = default_reason
 
+        company_partner = order.company_id.partner_id
+        receptor_partner = order.partner_id
+        emisor_address_parts = [
+            company_partner.street,
+            (getattr(company_partner, "fp_neighborhood_id", False) and getattr(company_partner.fp_neighborhood_id, "name", False)) or False,
+            (getattr(company_partner, "fp_district_id", False) and getattr(company_partner.fp_district_id, "name", False)) or False,
+            (getattr(company_partner, "fp_canton_id", False) and getattr(company_partner.fp_canton_id, "name", False)) or False,
+            (getattr(company_partner, "fp_province_id", False) and getattr(company_partner.fp_province_id, "name", False)) or False,
+        ]
+        receptor_address_parts = [
+            receptor_partner.street if receptor_partner else False,
+            ((getattr(receptor_partner, "fp_neighborhood_id", False) and getattr(receptor_partner.fp_neighborhood_id, "name", False)) if receptor_partner else False),
+            ((getattr(receptor_partner, "fp_district_id", False) and getattr(receptor_partner.fp_district_id, "name", False)) if receptor_partner else False),
+            ((getattr(receptor_partner, "fp_canton_id", False) and getattr(receptor_partner.fp_canton_id, "name", False)) if receptor_partner else False),
+            ((getattr(receptor_partner, "fp_province_id", False) and getattr(receptor_partner.fp_province_id, "name", False)) if receptor_partner else False),
+        ]
+
         return {
             "id": order.id,
             "pos_reference": order.pos_reference,
@@ -1382,6 +1399,16 @@ class PosOrder(models.Model):
             "cr_fe_reference_issue_date": order.cr_fe_reference_issue_date or reference_payload.get("issue_date"),
             "cr_fe_reference_code": order.cr_fe_reference_code or reference_payload.get("code"),
             "cr_fe_reference_reason": order.cr_fe_reference_reason or reference_payload.get("reason"),
+            "cr_fe_emisor_name": order.company_id.name,
+            "cr_fe_emisor_vat": order.company_id.vat,
+            "cr_fe_emisor_email": company_partner.email,
+            "cr_fe_emisor_phone": company_partner.phone or company_partner.mobile,
+            "cr_fe_emisor_address": ", ".join([part for part in emisor_address_parts if part]),
+            "cr_fe_receptor_name": receptor_partner.name if receptor_partner else False,
+            "cr_fe_receptor_vat": receptor_partner.vat if receptor_partner else False,
+            "cr_fe_receptor_email": receptor_partner.email if receptor_partner else False,
+            "cr_fe_receptor_phone": (receptor_partner.phone or receptor_partner.mobile) if receptor_partner else False,
+            "cr_fe_receptor_address": ", ".join([part for part in receptor_address_parts if part]),
         }
 
     @api.model

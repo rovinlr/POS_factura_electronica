@@ -1,15 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates id="template" xml:space="preserve">
 
-    <!-- Odoo 19 receipt: order lines are rendered via <OrderDisplay/> (no legacy div.orderline). -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <xpath expr="//OrderDisplay" position="before">
+        <xpath expr="//ReceiptHeader" position="replace">
+                        <t t-set="partner" t-value="(order &amp;&amp; order.getPartner &amp;&amp; order.getPartner()) || order.partner_id || {}"/>
             <t t-set="document_type" t-value="((order.cr_fe_document_type || '') + '').toLowerCase()"/>
-            <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : 'Comprobante electrónico'))"/>
+            <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : (document_type === 'nd' ? 'Nota de débito electrónica' : 'Comprobante electrónico')))"/>
+            <t t-set="order_date_raw" t-value="(order.date_order || order.date || '') + ''"/>
+            <t t-set="order_date_iso" t-value="order_date_raw.length &gt;= 10 ? order_date_raw.slice(0, 10) : ''"/>
+            <t t-set="order_date_ddmmyyyy" t-value="order_date_iso ? (order_date_iso.slice(8, 10) + '/' + order_date_iso.slice(5, 7) + '/' + order_date_iso.slice(0, 4)) : ''"/>
+            <t t-set="emisor_address" t-value="order.cr_fe_emisor_address || ''"/>
+            <t t-set="customer_address" t-value="order.cr_fe_receptor_address || partner.contact_address || partner.street || ''"/>
+
+            <div class="cr-company-block cr-center">
+                <div class="cr-company-name"><t t-esc="order.cr_fe_emisor_name || ''"/></div>
+                <div t-if="order.cr_fe_emisor_vat"><strong>Identificación:</strong> <t t-esc="order.cr_fe_emisor_vat"/></div>
+                <div t-if="order.cr_fe_emisor_email"><strong>Correo:</strong> <t t-esc="order.cr_fe_emisor_email"/></div>
+                <div t-if="order.cr_fe_emisor_phone"><strong>Teléfono:</strong> <t t-esc="order.cr_fe_emisor_phone"/></div>
+                <div t-if="emisor_address"><strong>Dirección:</strong> <t t-esc="emisor_address"/></div>
+            </div>
+
+            <div class="cr-block cr-center cr-order-meta">
+                <div><strong>Orden:</strong> <t t-esc="order.name || order.pos_reference || ''"/></div>
+                <div t-if="order_date_ddmmyyyy"><strong>Fecha:</strong> <t t-esc="order_date_ddmmyyyy"/></div>
+            </div>
+
+            <t t-if="partner &amp;&amp; (partner.name || partner.vat || partner.email || partner.phone || customer_address)">
+                <div class="cr-block cr-customer-data">
+                    <div class="cr-title">Datos del cliente</div>
+                    <div t-if="partner.name || order.cr_fe_receptor_name"><strong>Nombre:</strong> <t t-esc="partner.name || order.cr_fe_receptor_name"/></div>
+                    <div t-if="partner.vat || order.cr_fe_receptor_vat"><strong>Identificación:</strong> <t t-esc="partner.vat || order.cr_fe_receptor_vat"/></div>
+                    <div t-if="partner.email || order.cr_fe_receptor_email"><strong>Correo:</strong> <t t-esc="partner.email || order.cr_fe_receptor_email"/></div>
+                    <div t-if="partner.phone || order.cr_fe_receptor_phone"><strong>Teléfono:</strong> <t t-esc="partner.phone || order.cr_fe_receptor_phone"/></div>
+                    <div t-if="customer_address"><strong>Dirección:</strong> <t t-esc="customer_address"/></div>
+                </div>
+            </t>
+
             <div class="cr-block cr-center cr-fe-doc-header">
                 <div class="cr-fe-doc-type"><strong><t t-esc="document_type_name"/></strong></div>
                 <div class="cr-fe-consecutivo" t-if="order.cr_fe_consecutivo"><t t-esc="order.cr_fe_consecutivo"/></div>
             </div>
+
             <div class="cr-product-lines-head">
                 <span class="cr-product-col-qty">Cant</span>
                 <span class="cr-product-col-name">Descripción</span>
@@ -18,27 +49,13 @@
         </xpath>
     </t>
 
-    <!-- FE metadata (Costa Rica) -->
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
-        <!-- Use the explicit placeholder recommended by Odoo to avoid brittle xpaths. -->
         <xpath expr="//div[hasclass('before-footer')]" position="inside">
-            <t t-set="partner" t-value="(order &amp;&amp; order.getPartner &amp;&amp; order.getPartner()) || order.partner_id || {}"/>
-
             <div class="cr-fe-extra">
                 <div class="cr-block cr-small">
                     <div class="cr-title">Comprobante electrónico</div>
                     <div><strong>Clave:</strong> <t t-esc="order.cr_fe_clave || 'Pendiente'"/></div>
                 </div>
-
-                <t t-if="partner &amp;&amp; (partner.name || partner.vat || partner.email || partner.phone)">
-                    <div class="cr-block cr-small">
-                        <div class="cr-title">Datos del receptor</div>
-                        <div t-if="partner.name"><strong>Nombre:</strong> <t t-esc="partner.name"/></div>
-                        <div t-if="partner.vat"><strong>Identificación:</strong> <t t-esc="partner.vat"/></div>
-                        <div t-if="partner.email"><strong>Correo:</strong> <t t-esc="partner.email"/></div>
-                        <div t-if="partner.phone"><strong>Teléfono:</strong> <t t-esc="partner.phone"/></div>
-                    </div>
-                </t>
 
                 <t t-if="(order.cr_fe_document_type || '').toLowerCase() === 'nc'">
                     <div class="cr-block cr-small">
@@ -50,6 +67,11 @@
                         <div><strong>Razón:</strong> <t t-esc="order.cr_fe_reference_reason || ''"/></div>
                     </div>
                 </t>
+
+                <div class="cr-block cr-center cr-legal-footer">
+                    <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
+                    <div>Versión XML 4.4</div>
+                </div>
             </div>
         </xpath>
     </t>
