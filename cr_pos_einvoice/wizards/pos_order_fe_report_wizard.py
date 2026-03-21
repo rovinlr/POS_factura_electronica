@@ -23,8 +23,12 @@ class PosOrderFeReportWizard(models.TransientModel):
 
     def _build_report_domain(self):
         self.ensure_one()
+        # En este flujo, pos.order.date_order ya se persiste en fecha/hora local
+        # de la operación. Por ello el filtro del reporte debe usar exactamente
+        # los límites locales capturados por el usuario sin conversión de zona.
         start_dt = datetime.combine(self.date_from, time.min)
         end_dt = datetime.combine(self.date_to, time.max)
+
         return [
             ("state", "in", ["paid", "done", "invoiced"]),
             ("date_order", ">=", fields.Datetime.to_string(start_dt)),
