@@ -163,7 +163,7 @@ class PosOrder(models.Model):
             charges = order._cr_normalize_other_charges(order.cr_other_charges_json)
             order.cr_other_charges_amount = sum(float(charge.get("amount") or 0.0) for charge in charges)
 
-    @api.depends("lines.price_subtotal", "lines.tax_ids_after_fiscal_position.amount", "lines.tax_ids_after_fiscal_position.name")
+    @api.depends("lines.price_subtotal", "lines.tax_ids_after_fiscal_position")
     def _compute_cr_tax_report_amounts(self):
         for order in self:
             taxable = 0.0
