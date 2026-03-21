@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_order_tree_fe_report" model="ir.ui.view">
+        <field name="name">pos.order.tree.fe.report</field>
+        <field name="model">pos.order</field>
+        <field name="arch" type="xml">
+            <list string="Reporte FE POS" create="0" delete="0">
+                <field name="date_order" string="Fecha"/>
+                <field name="cr_fe_document_type" string="Tipo"/>
+                <field name="cr_fe_consecutivo" string="Documento"/>
+                <field name="cr_tax_rate_display" string="Impuesto (%)"/>
+                <field name="cr_exempt_amount" string="Exento" sum="Exento"/>
+                <field name="cr_nonsubject_amount" string="No sujeto" sum="No sujeto"/>
+                <field name="cr_exonerated_amount" string="Exonerado" sum="Exonerado"/>
+                <field name="cr_taxable_amount" string="Gravado" sum="Gravado"/>
+                <field name="amount_tax" string="Importe impuesto" sum="Impuesto"/>
+                <field name="amount_total" string="Total" sum="Total"/>
+                <field name="cr_fe_status" string="Estado FE" widget="badge" decoration-success="cr_fe_status == 'accepted'" decoration-danger="cr_fe_status in ('rejected', 'error')" decoration-warning="cr_fe_status in ('pending', 'processing', 'sent', 'error_retry')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_pos_order_search_fe_report" model="ir.ui.view">
+        <field name="name">pos.order.search.fe.report</field>
+        <field name="model">pos.order</field>
+        <field name="arch" type="xml">
+            <search string="Reporte FE POS">
+                <field name="date_order"/>
+                <field name="cr_fe_document_type"/>
+                <field name="cr_fe_consecutivo"/>
+                <field name="cr_fe_status"/>
+                <filter name="filter_date_order" string="Fecha" date="date_order"/>
+                <separator/>
+                <filter name="group_by_month" string="Mes" context="{'group_by': 'date_order:month'}"/>
+                <filter name="group_by_year" string="Año" context="{'group_by': 'date_order:year'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_pos_order_fe_report" model="ir.actions.act_window">
+        <field name="name">Reporte FE POS</field>
+        <field name="res_model">pos.order</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="view_id" ref="view_pos_order_tree_fe_report"/>
+        <field name="search_view_id" ref="view_pos_order_search_fe_report"/>
+        <field name="domain">[("state", "in", ["paid", "done", "invoiced"])]</field>
+        <field name="context">{'search_default_filter_date_order': 1}</field>
+    </record>
+
+    <menuitem
+        id="menu_pos_order_fe_report"
+        name="Reporte FE POS"
+        parent="point_of_sale.menu_point_reporting"
+        action="action_pos_order_fe_report"
+        sequence="45"
+    />
+
+    <record id="action_report_pos_order_fe_summary" model="ir.actions.report">
+        <field name="name">Reporte FE POS (PDF)</field>
+        <field name="model">pos.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">cr_pos_einvoice.report_pos_order_fe_summary</field>
+        <field name="report_file">cr_pos_einvoice.report_pos_order_fe_summary</field>
+        <field name="binding_model_id" ref="point_of_sale.model_pos_order"/>
+        <field name="binding_type">report</field>
+        <field name="print_report_name">'Reporte_FE_POS'</field>
+    </record>
+
+    <template id="report_pos_order_fe_summary">
+        <t t-call="web.html_container">
+            <t t-call="web.external_layout">
+                <div class="page">
+                    <h2>Reporte FE POS</h2>
+                    <p>
+                        Registros seleccionados:
+                        <span t-esc="len(docs)"/>
+                    </p>
+                    <table class="table table-sm table-bordered" style="width: 100%; font-size: 11px;">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Tipo</th>
+                                <th>Documento</th>
+                                <th>Impuesto (%)</th>
+                                <th class="text-right">Exento</th>
+                                <th class="text-right">No sujeto</th>
+                                <th class="text-right">Exonerado</th>
+                                <th class="text-right">Gravado</th>
+                                <th class="text-right">Importe impuesto</th>
+                                <th class="text-right">Total</th>
+                                <th>Estado FE</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="docs" t-as="o">
+                                <td><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></td>
+                                <td><span t-field="o.cr_fe_document_type"/></td>
+                                <td><span t-esc="o.cr_fe_consecutivo or o.name"/></td>
+                                <td><span t-esc="o.cr_tax_rate_display"/></td>
+                                <td class="text-right"><span t-field="o.cr_exempt_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_nonsubject_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_exonerated_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.cr_taxable_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-field="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td><span t-field="o.cr_fe_status"/></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </t>
+    </template>
+</odoo>

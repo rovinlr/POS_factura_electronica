@@ -105,6 +105,35 @@ class PosOrder(models.Model):
         compute="_compute_fp_pos_fe_fields",
         store=True,
     )
+    cr_tax_rate_display = fields.Char(
+        string="Impuesto (%)",
+        compute="_compute_cr_tax_report_amounts",
+        store=False,
+    )
+    cr_taxable_amount = fields.Monetary(
+        string="Gravado",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_exempt_amount = fields.Monetary(
+        string="Exento",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_nonsubject_amount = fields.Monetary(
+        string="No sujeto",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
+    cr_exonerated_amount = fields.Monetary(
+        string="Exonerado",
+        compute="_compute_cr_tax_report_amounts",
+        currency_field="currency_id",
+        store=False,
+    )
 
     _cr_pos_einvoice_idempotency_key_unique = models.Constraint(
         "unique(company_id, cr_fe_idempotency_key)",
@@ -133,6 +162,30 @@ class PosOrder(models.Model):
         for order in self:
             charges = order._cr_normalize_other_charges(order.cr_other_charges_json)
             order.cr_other_charges_amount = sum(float(charge.get("amount") or 0.0) for charge in charges)
+
+    @api.depends("lines.price_subtotal", "lines.tax_ids_after_fiscal_position.amount", "lines.tax_ids_after_fiscal_position.name")
+    def _compute_cr_tax_report_amounts(self):
+        for order in self:
+            taxable = 0.0
+            exempt = 0.0
+            rates = set()
+            for line in order.lines:
+                subtotal = line.price_subtotal or 0.0
+                taxes = line.tax_ids_after_fiscal_position
+                positive_taxes = taxes.filtered(lambda tax: tax.amount and tax.amount > 0)
+                if positive_taxes:
+                    taxable += subtotal
+                    for tax in positive_taxes:
+                        rates.add(f"{tax.amount:g}%")
+                else:
+                    exempt += subtotal
+            order.cr_taxable_amount = taxable
+            order.cr_exempt_amount = exempt
+            # Se dejan en 0.0 para preservar consistencia cuando no se dispone de
+            # categorización fiscal explícita en POS por línea.
+            order.cr_nonsubject_amount = 0.0
+            order.cr_exonerated_amount = 0.0
+            order.cr_tax_rate_display = ", ".join(sorted(rates)) if rates else "0%"
 
     def _compute_cr_fe_attachment_ids(self):
         attachments_by_order = defaultdict(lambda: self.env["ir.attachment"])
