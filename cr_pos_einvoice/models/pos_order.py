@@ -797,6 +797,7 @@ class PosOrder(models.Model):
         # 1) Prefer POS-native PDF reports so customer receives ticket style
         # printed by POS/backoffice, while avoiding qweb-html-only actions.
         preferred_pos_xmlids = [
+            "cr_pos_einvoice.action_report_pos_order_ticket_cr",  # deterministic POS ticket PDF for FE email flow
             "point_of_sale.report_invoice",  # legacy/community variants
             "point_of_sale.pos_ticket",  # POS receipt in newer versions
             "point_of_sale.action_report_pos_order",  # Odoo 19 variants
@@ -1511,6 +1512,8 @@ class PosOrder(models.Model):
             normalized = self._cr_normalize_other_charges(candidate, subtotal=subtotal)
             if normalized:
                 return normalized
+        if computed_service_charge:
+            return [computed_service_charge]
         return []
 
     @api.model
