@@ -7,7 +7,7 @@
             <t t-set="document_type" t-value="((order.cr_fe_document_type || '') + '').toLowerCase()"/>
             <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : (document_type === 'nd' ? 'Nota de débito electrónica' : 'Comprobante electrónico')))"/>
             <t t-set="order_date_ddmmyyyy" t-value="order.cr_order_date_ddmmyyyy || ''"/>
-            <t t-set="customer_address" t-value="order.cr_fe_receptor_address || [partner.street || '', partner.street2 || '', partner.city || '', (partner.state_id &amp;&amp; partner.state_id.name) || '', partner.zip || '', (partner.country_id &amp;&amp; partner.country_id.name) || ''].join(' ').replace(/\s+/g, ' ').trim()"/>
+            <t t-set="customer_address" t-value="order.cr_fe_receptor_address || [partner.street || '', partner.street2 || '', partner.city || '', (partner.state_id &amp;&amp; partner.state_id.name) || '', partner.zip || '', (partner.country_id &amp;&amp; partner.country_id.name) || ''].join(', ')"/>
 
             <div class="cr-block cr-center cr-order-meta" t-if="order.name || order.pos_reference || order_date_ddmmyyyy">
                 <div><strong>Orden:</strong> <t t-esc="order.name || order.pos_reference || ''"/></div>
