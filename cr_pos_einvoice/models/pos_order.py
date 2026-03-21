@@ -794,13 +794,19 @@ class PosOrder(models.Model):
 
     def _cr_get_pdf_report_action(self):
         self.ensure_one()
-        # 1) Prefer POS-native reports so customer receives the same ticket style
-        # printed by POS/backoffice for pos.order.
+        # 1) Prefer POS-native PDF reports so customer receives ticket style
+        # printed by POS/backoffice, while avoiding qweb-html-only actions.
+        preferred_pos_xmlids = [
+            "point_of_sale.report_invoice",  # legacy/community variants
+            "point_of_sale.pos_ticket",  # POS receipt in newer versions
+        ]
+        for xmlid in preferred_pos_xmlids:
+            report = self.env.ref(xmlid, raise_if_not_found=False)
+            if report and report.model == "pos.order" and report.report_type in ("qweb-pdf", "qweb-html"):
+                return report
+
         pos_report = self.env["ir.actions.report"].search(
-            [
-                ("model", "=", "pos.order"),
-                ("report_type", "in", ("qweb-pdf", "qweb-html")),
-            ],
+            [("model", "=", "pos.order"), ("report_type", "=", "qweb-pdf")],
             order="id asc",
             limit=1,
         )
@@ -856,7 +862,21 @@ class PosOrder(models.Model):
             # Avoid raising and let mail flow continue with XML attachments.
             return self.env["ir.attachment"]
 
-        pdf_content, _content_type = report._render_qweb_pdf(record_ids)
+        pdf_content = b""
+        if report.report_type == "qweb-html":
+            html_bodies, *_rest = report._render_qweb_html(record_ids)
+            if html_bodies:
+                report_engine = self.env["ir.actions.report"].sudo()
+                if isinstance(html_bodies, (list, tuple)):
+                    html_pages = [h.decode("utf-8", errors="ignore") if isinstance(h, bytes) else h for h in html_bodies if h]
+                else:
+                    html_pages = [html_bodies.decode("utf-8", errors="ignore") if isinstance(html_bodies, bytes) else html_bodies]
+                if html_pages:
+                    pdf_content = report_engine._run_wkhtmltopdf(html_pages, landscape=False)
+        else:
+            pdf_content, _content_type = report._render_qweb_pdf(record_ids)
+        if not pdf_content:
+            return self.env["ir.attachment"]
         attachment = self.env["ir.attachment"].create(
             {
                 "name": filename,
