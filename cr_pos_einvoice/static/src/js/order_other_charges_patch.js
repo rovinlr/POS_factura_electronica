@@ -21,7 +21,8 @@ const computeServiceCharge = (subtotal) => {
     };
 };
 
-const normalizeCharges = (charges, subtotal = null) => {
+const normalizeCharges = (charges, subtotal = null, options = {}) => {
+    const { forceSubtotalAmount = false } = options;
     if (!charges) return [];
     if (typeof charges === "string") {
         try {
@@ -38,7 +39,7 @@ const normalizeCharges = (charges, subtotal = null) => {
         if (code && code !== SERVICE_CHARGE_CODE) continue;
         const percent = Number(item.percent ?? item.porcentaje ?? 10);
         const computed = computeServiceCharge(subtotal);
-        const amount = Number(item.amount ?? item.monto ?? computed?.amount);
+        const amount = Number(forceSubtotalAmount ? computed?.amount : (item.amount ?? item.monto ?? computed?.amount));
         if (!Number.isFinite(amount) || amount <= 0) continue;
         normalized.push({
             type: String(item.type ?? item.tipo ?? item.charge_type ?? "99"),
@@ -61,7 +62,8 @@ patch(PosOrder.prototype, {
 
     setOtherCharges(charges) {
         this.assertEditable?.();
-        this.cr_other_charges = normalizeCharges(charges);
+        const subtotal = Number(this.get_total_without_tax?.() ?? 0);
+        this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: false });
     },
 
     getOtherCharges() {
@@ -71,10 +73,9 @@ patch(PosOrder.prototype, {
     serializeForORM(opts = {}) {
         const data = super.serializeForORM(...arguments);
         const subtotal = Number(this.get_total_without_tax?.() ?? 0);
-        const computedServiceCharge = computeServiceCharge(subtotal);
-        const charges = computedServiceCharge ? [computedServiceCharge] : this.getOtherCharges();
+        const charges = this.getOtherCharges();
         if (charges.length) {
-            this.cr_other_charges = normalizeCharges(charges, subtotal);
+            this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: true });
             // Multiple keys for server-side extraction (backend checks several aliases)
             data.cr_other_charges = this.cr_other_charges;
             data.other_charges = this.cr_other_charges;

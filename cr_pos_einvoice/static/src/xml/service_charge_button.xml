@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="cr_pos_einvoice.ServiceChargeButton">
+        <button
+            class="control-button"
+            t-att-class="props.className || ''"
+            t-on-click="onClick"
+            t-att-title="isActive ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
+        >
+            <i class="fa fa-percent me-1" role="img" aria-label="Servicio"/>
+            <span t-esc="isActive ? 'Servicio 10%: ON' : 'Servicio 10%: OFF'"/>
+        </button>
+    </t>
+</templates>
+

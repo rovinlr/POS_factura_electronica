@@ -1298,8 +1298,8 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(payload["other_charges"][0]["percent"], 10)
         self.assertEqual(payload["other_charges"], payload["otros_cargos"])
 
-    def test_extract_other_charges_defaults_to_service_charge_from_subtotal(self):
-        ui_order = {"data": {"amount_total": 5800.0, "amount_tax": 800.0}}
+    def test_extract_other_charges_computes_amount_when_code_06_missing_amount(self):
+        ui_order = {"data": {"amount_total": 5800.0, "amount_tax": 800.0, "other_charges": [{"code": "06"}]}}
         charges = self.env["pos.order"]._cr_extract_other_charges_from_ui(ui_order)
         self.assertEqual(len(charges), 1)
         self.assertEqual(charges[0]["code"], "06")

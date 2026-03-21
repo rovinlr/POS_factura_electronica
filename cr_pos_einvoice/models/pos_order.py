@@ -1503,7 +1503,6 @@ class PosOrder(models.Model):
         if not isinstance(payload, dict):
             return []
         subtotal = self._cr_extract_subtotal_from_ui_payload(payload)
-        computed_service_charge = self._cr_build_service_charge(subtotal)
         candidates = (
             payload.get("cr_other_charges"),
             payload.get("other_charges"),
