@@ -7,7 +7,7 @@
             <t t-set="document_type" t-value="((order.cr_fe_document_type || '') + '').toLowerCase()"/>
             <t t-set="document_type_name" t-value="document_type === 'te' ? 'Tiquete electrónico' : (document_type === 'fe' ? 'Factura electrónica' : (document_type === 'nc' ? 'Nota de crédito electrónica' : (document_type === 'nd' ? 'Nota de débito electrónica' : 'Comprobante electrónico')))"/>
             <t t-set="order_date_ddmmyyyy" t-value="order.cr_order_date_ddmmyyyy || ''"/>
-            <t t-set="customer_address" t-value="order.cr_fe_receptor_address || partner.contact_address || partner.street || ''"/>
+            <t t-set="customer_address" t-value="order.cr_fe_receptor_address || [partner.street, partner.street2, partner.city, partner.state_id &amp;&amp; partner.state_id.name, partner.zip, partner.country_id &amp;&amp; partner.country_id.name].filter(Boolean).join(' ') || ''"/>
 
             <div class="cr-block cr-center cr-order-meta" t-if="order.name || order.pos_reference || order_date_ddmmyyyy">
                 <div><strong>Orden:</strong> <t t-esc="order.name || order.pos_reference || ''"/></div>
@@ -33,11 +33,32 @@
     </t>
 
     <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('total')]" position="attributes">
+            <attribute name="class" add="cr-totals-right" separator=" "/>
+        </xpath>
+
+        <xpath expr="//div[hasclass('before-footer')]" position="before">
+            <div class="cr-block cr-small cr-rate-summary" t-if="order.cr_tax_summary_lines &amp;&amp; order.cr_tax_summary_lines.length">
+                <div class="cr-title">Resumen de tarifas</div>
+                <t t-foreach="order.cr_tax_summary_lines" t-as="line" t-key="line.label">
+                    <div class="cr-rate-summary-line">
+                        <span class="cr-rate-label"><t t-esc="line.label"/></span>
+                        <span class="cr-rate-values"><t t-esc="line.formatted_base"/> (<t t-esc="line.formatted_tax"/>)</span>
+                    </div>
+                </t>
+            </div>
+        </xpath>
+
         <xpath expr="//div[hasclass('before-footer')]" position="inside">
             <div class="cr-fe-extra">
                 <div class="cr-block cr-small">
                     <div class="cr-title">Comprobante electrónico</div>
                     <div><strong>Clave:</strong> <t t-esc="order.cr_fe_clave || 'Pendiente'"/></div>
+                </div>
+
+                <div class="cr-block cr-center cr-legal-footer">
+                    <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
+                    <div>Versión XML 4.4</div>
                 </div>
 
                 <t t-if="(order.cr_fe_document_type || '').toLowerCase() === 'nc'">
@@ -50,11 +71,6 @@
                         <div><strong>Razón:</strong> <t t-esc="order.cr_fe_reference_reason || ''"/></div>
                     </div>
                 </t>
-
-                <div class="cr-block cr-center cr-legal-footer">
-                    <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
-                    <div>Versión XML 4.4</div>
-                </div>
             </div>
         </xpath>
     </t>
