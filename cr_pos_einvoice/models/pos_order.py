@@ -864,19 +864,10 @@ class PosOrder(models.Model):
             # Avoid raising and let mail flow continue with XML attachments.
             return self.env["ir.attachment"]
 
+        report_engine = self.env["ir.actions.report"].sudo()
         pdf_content = b""
-        if report.report_type == "qweb-html":
-            html_bodies, *_rest = report._render_qweb_html(record_ids)
-            if html_bodies:
-                report_engine = self.env["ir.actions.report"].sudo()
-                if isinstance(html_bodies, (list, tuple)):
-                    html_pages = [h.decode("utf-8", errors="ignore") if isinstance(h, bytes) else h for h in html_bodies if h]
-                else:
-                    html_pages = [html_bodies.decode("utf-8", errors="ignore") if isinstance(html_bodies, bytes) else html_bodies]
-                if html_pages:
-                    pdf_content = report_engine._run_wkhtmltopdf(html_pages, landscape=False)
-        else:
-            pdf_content, _content_type = report._render_qweb_pdf(record_ids)
+        if report.report_name:
+            pdf_content, _content_type = report_engine._render_qweb_pdf(report.report_name, res_ids=record_ids)
         if not pdf_content:
             return self.env["ir.attachment"]
         attachment = self.env["ir.attachment"].create(
