@@ -507,6 +507,30 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertTrue(order.cr_fe_email_sent)
 
+    def test_try_send_accepted_email_skips_when_send_lock_not_acquired(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE Lock", "email": "lockmail@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/LOCK/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+            with patch.object(type(order), "_cr_acquire_email_send_lock", lambda self: False):
+                with patch.object(
+                    type(self.env["mail.mail"]),
+                    "create",
+                    side_effect=AssertionError("Should not create mail when lock is not acquired"),
+                ):
+                    self.assertFalse(order._cr_try_send_accepted_email())
+
+        self.assertFalse(order.cr_fe_email_sent)
+
     def test_get_email_attachments_includes_linked_pdf_attachment(self):
         order = self.env["pos.order"].create(
             {
