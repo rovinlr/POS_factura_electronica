@@ -31,6 +31,14 @@
     <template id="report_pos_order_ticket_cr">
         <t t-call="web.html_container">
             <style type="text/css">
+                .article.o_report_layout_standard,
+                .article.o_report_layout_striped,
+                .o_report_layout_standard,
+                .o_report_layout_striped {
+                    padding: 0 !important;
+                    margin: 0 !important;
+                }
+
                 .cr-pos-ticket-page,
                 .cr-pos-ticket-page * {
                     box-sizing: border-box;
@@ -107,6 +115,7 @@
 
                 .txt-left {
                     text-align: left;
+                    padding-left: 1mm;
                 }
 
                 .txt-right {
@@ -158,7 +167,8 @@
             </style>
 
             <t t-foreach="docs" t-as="o">
-                <div class="page cr-pos-ticket-page">
+                <t t-call="web.basic_layout">
+                    <div class="page cr-pos-ticket-page">
                     <t t-set="doc_type_map" t-value="{'te': 'Tiquete electrónico', 'fe': 'Factura electrónica', 'nc': 'Nota de crédito electrónica', 'nd': 'Nota de débito electrónica'}"/>
                     <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
                     <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
@@ -302,7 +312,8 @@
                             <div>Versión XML 4.4</div>
                         </div>
                     </div>
-                </div>
+                    </div>
+                </t>
             </t>
         </t>
     </template>
