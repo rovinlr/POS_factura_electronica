@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <record id="paperformat_pos_ticket_pdf" model="report.paperformat">
-        <field name="name">POS Ticket CR Thermal 80mm</field>
+        <field name="name">POS Ticket CR A4</field>
         <field name="default" eval="False"/>
-        <field name="format">custom</field>
-        <field name="page_width">80</field>
-        <field name="page_height">500</field>
+        <field name="format">A4</field>
+        <field name="page_width">0</field>
+        <field name="page_height">0</field>
         <field name="orientation">Portrait</field>
-        <field name="margin_top">1</field>
-        <field name="margin_bottom">1</field>
-        <field name="margin_left">0</field>
-        <field name="margin_right">0</field>
+        <field name="margin_top">8</field>
+        <field name="margin_bottom">8</field>
+        <field name="margin_left">8</field>
+        <field name="margin_right">8</field>
         <field name="header_line" eval="False"/>
         <field name="header_spacing">0</field>
         <field name="dpi">203</field>
@@ -47,12 +47,15 @@
                 }
 
                 .cr-pos-ticket-page {
-                    width: 80mm;
-                    max-width: 80mm;
-                    margin: 0;
-                    padding: 0 1mm;
-                    font-size: 11px;
-                    line-height: 1.25;
+                    width: 100%;
+                    max-width: 680px;
+                    margin: 0 auto;
+                    padding: 8mm 10mm;
+                    border: 1px solid #d9d9d9;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    line-height: 1.35;
+                    background: #fff;
                 }
 
                 .cr-ticket-center {
@@ -67,7 +70,7 @@
                 }
 
                 .cr-ticket-block {
-                    margin-top: 2mm;
+                    margin-top: 4mm;
                 }
 
                 .cr-ticket-line {
@@ -87,30 +90,30 @@
                 }
 
                 .cr-ticket-lines {
-                    margin-top: 2mm;
+                    margin-top: 4mm;
                 }
 
                 .cr-ticket-lines col.qty {
-                    width: 16%;
+                    width: 12%;
                 }
 
                 .cr-ticket-lines col.desc {
-                    width: 50%;
+                    width: 60%;
                 }
 
                 .cr-ticket-lines col.amt {
-                    width: 34%;
+                    width: 28%;
                 }
 
                 .cr-ticket-lines thead th {
                     border-bottom: 1px solid #000;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-weight: 700;
-                    padding: 0.8mm 0;
+                    padding: 1.2mm 0;
                 }
 
                 .cr-ticket-lines td {
-                    padding: 0.7mm 0;
+                    padding: 1mm 0;
                     vertical-align: top;
                     overflow-wrap: break-word;
                     word-break: break-word;
@@ -127,11 +130,11 @@
                 }
 
                 .cr-ticket-totals {
-                    margin-top: 2mm;
+                    margin-top: 4mm;
                 }
 
                 .cr-ticket-totals td {
-                    padding: 0.6mm 0;
+                    padding: 0.8mm 0;
                 }
 
                 .cr-ticket-totals .label {
@@ -149,14 +152,14 @@
                 .cr-ticket-totals .final td {
                     border-top: 1px solid #000;
                     font-weight: 700;
-                    font-size: 12px;
-                    padding-top: 1mm;
+                    font-size: 13px;
+                    padding-top: 1.4mm;
                 }
 
                 .cr-ticket-footer {
-                    margin-top: 2mm;
+                    margin-top: 4mm;
                     border-top: 1px solid #000;
-                    padding-top: 1mm;
+                    padding-top: 1.4mm;
                     word-break: break-all;
                 }
 
