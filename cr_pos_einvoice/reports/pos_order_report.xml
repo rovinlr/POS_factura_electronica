@@ -44,7 +44,7 @@
                     margin: 0 auto;
                     padding: 1.5mm 1mm;
                     font-size: 11px;
-                    line-height: 1.35;
+                    line-height: 1.2;
                     background: #fff;
                 }
 
@@ -60,16 +60,22 @@
                 }
 
                 .cr-ticket-block {
-                    margin-top: 4mm;
+                    margin-top: 2.4mm;
                 }
 
                 .cr-ticket-line {
-                    margin: 0;
-                    padding: 0;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    line-height: 1.2;
                 }
 
                 .cr-ticket-label {
-                    font-weight: 700;
+                    font-weight: 700 !important;
+                }
+
+                .cr-ticket-block .cr-ticket-line + .cr-ticket-line,
+                .cr-ticket-center .cr-ticket-line + .cr-ticket-line {
+                    margin-top: 0.35mm !important;
                 }
 
                 .cr-ticket-lines,
@@ -80,11 +86,11 @@
                 }
 
                 .cr-ticket-lines {
-                    margin-top: 4mm;
+                    margin-top: 2.2mm;
                 }
 
                 .cr-ticket-lines col.qty {
-                    width: 16%;
+                    width: 14%;
                 }
 
                 .cr-ticket-lines col.desc {
@@ -92,18 +98,19 @@
                 }
 
                 .cr-ticket-lines col.amt {
-                    width: 30%;
+                    width: 32%;
                 }
 
                 .cr-ticket-lines thead th {
-                    border-bottom: 1px solid #000;
-                    font-size: 12px;
+                    border: 1px solid #000;
+                    font-size: 11px;
                     font-weight: 700;
-                    padding: 1.2mm 0;
+                    padding: 0.7mm 0.7mm;
                 }
 
                 .cr-ticket-lines td {
-                    padding: 0.6mm 0;
+                    border: 1px solid #000;
+                    padding: 0.45mm 0.7mm;
                     vertical-align: top;
                     overflow-wrap: break-word;
                     word-break: break-word;
@@ -120,7 +127,9 @@
                 }
 
                 .cr-ticket-totals {
-                    margin-top: 4mm;
+                    margin-top: 2mm;
+                    width: 56%;
+                    margin-left: auto;
                 }
 
                 .cr-ticket-totals td {
@@ -128,9 +137,9 @@
                 }
 
                 .cr-ticket-totals .label {
-                    width: 58%;
-                    text-align: right;
-                    font-weight: 700;
+                    width: 52%;
+                    text-align: left;
+                    font-weight: 500;
                 }
 
                 .cr-ticket-totals .amount {
@@ -147,9 +156,9 @@
                 }
 
                 .cr-ticket-footer {
-                    margin-top: 4mm;
+                    margin-top: 2.2mm;
                     border-top: 1px solid #000;
-                    padding-top: 1.4mm;
+                    padding-top: 1mm;
                     word-break: break-all;
                 }
 
@@ -161,7 +170,7 @@
 
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.basic_layout">
-                    <div class="page cr-pos-ticket-page" style="padding:1.5mm 1mm; width:100%; max-width:76mm; margin:0 auto; font-size:11px; line-height:1.35;">
+                    <div class="page cr-pos-ticket-page" style="padding:1.5mm 1mm; width:100%; max-width:76mm; margin:0 auto; font-size:11px; line-height:1.2;">
                         <t t-set="doc_type_map" t-value="{'te': 'Tiquete electrónico', 'fe': 'Factura electrónica', 'nc': 'Nota de crédito electrónica', 'nd': 'Nota de débito electrónica'}"/>
                         <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
                         <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
@@ -202,9 +211,9 @@
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th class="txt-right" style="text-align:right;">Cant</th>
-                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Descripción</th>
-                                    <th class="txt-right" style="text-align:right;">Importe</th>
+                                    <th class="txt-right" style="text-align:right;">Cant.</th>
+                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Detalle</th>
+                                    <th class="txt-right" style="text-align:right;">Subtotal</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -222,19 +231,19 @@
                         <table class="cr-ticket-totals" aria-label="Totales" style="width:100%; border-collapse:collapse;">
                             <tbody>
                                 <tr>
-                                    <td class="label" style="text-align:right; font-weight:700;">Subtotal</td>
+                                    <td class="label" style="text-align:left;">Subtotal</td>
                                     <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr>
-                                    <td class="label" style="text-align:right; font-weight:700;">Impuesto</td>
+                                    <td class="label" style="text-align:left;">Impuesto</td>
                                     <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr t-if="other_charges_amount">
-                                    <td class="label" style="text-align:right; font-weight:700;">Servicio 10%</td>
+                                    <td class="label" style="text-align:left;">Servicio 10%</td>
                                     <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr class="final">
-                                    <td class="label" style="text-align:right; font-weight:700;">Total</td>
+                                    <td class="label" style="text-align:left; font-weight:700;">Total</td>
                                     <td class="amount" style="text-align:right; white-space:nowrap; font-weight:700;"><span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                             </tbody>
