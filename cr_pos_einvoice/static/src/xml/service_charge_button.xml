@@ -1,15 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates id="template" xml:space="preserve">
     <t t-name="cr_pos_einvoice.ServiceChargeControlButton" t-inherit="point_of_sale.ControlButtons" t-inherit-mode="extension">
-        <xpath expr="//div[hasclass('control-buttons')]" position="inside">
+        <xpath expr="//InternalNoteButton" position="after">
             <button
-                class="control-button"
-                t-att-class="{'highlight': (this.pos?.get_order?.() || this.currentOrder)?.hasServiceCharge10?.()}"
-                t-on-click.stop.prevent="() => (this.pos?.get_order?.() || this.currentOrder)?.toggleServiceCharge10?.()"
-                t-att-title="(this.pos?.get_order?.() || this.currentOrder)?.hasServiceCharge10?.() ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
+                t-if="!props.showRemainingButtons"
+                t-attf-class="{{ buttonClass }} {{ currentOrder?.hasServiceCharge10?.() ? 'btn-warning' : '' }}"
+                t-on-click.stop.prevent="() => currentOrder?.toggleServiceCharge10?.()"
+                t-att-title="currentOrder?.hasServiceCharge10?.() ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
             >
-                <i class="fa fa-percent me-1" role="img" aria-label="Servicio"/>
-                <span t-esc="(this.pos?.get_order?.() || this.currentOrder)?.hasServiceCharge10?.() ? 'Servicio 10%: ON' : 'Servicio 10%: OFF'"/>
+                <i class="fa fa-percent me-2" role="img" aria-label="Servicio"/>
+                <span t-esc="currentOrder?.hasServiceCharge10?.() ? 'Servicio 10% activo' : 'Aplicar servicio 10%'"/>
+            </button>
+        </xpath>
+
+        <xpath expr="//div[hasclass('control-buttons') and hasclass('control-buttons-modal')]" position="inside">
+            <button
+                t-if="props.showRemainingButtons"
+                t-attf-class="{{ buttonClass }} {{ currentOrder?.hasServiceCharge10?.() ? 'btn-warning' : '' }}"
+                t-on-click.stop.prevent="() => currentOrder?.toggleServiceCharge10?.()"
+                t-att-title="currentOrder?.hasServiceCharge10?.() ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
+            >
+                <i class="fa fa-percent me-2" role="img" aria-label="Servicio"/>
+                <span t-esc="currentOrder?.hasServiceCharge10?.() ? 'Quitar servicio 10%' : 'Aplicar servicio 10%'"/>
             </button>
         </xpath>
     </t>

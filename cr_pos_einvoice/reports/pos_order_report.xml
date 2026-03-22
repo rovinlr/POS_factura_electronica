@@ -34,7 +34,7 @@
                 .cr-pos-ticket-page,
                 .cr-pos-ticket-page * {
                     box-sizing: border-box;
-                    color: #000;
+                    color: #111827;
                     font-family: 'DejaVu Sans', Arial, sans-serif;
                 }
 
@@ -42,33 +42,85 @@
                     width: 100%;
                     max-width: 76mm;
                     margin: 0 auto;
-                    padding: 1.5mm 1mm;
-                    font-size: 11px;
-                    line-height: 1.35;
-                    background: #fff;
+                    padding: 1.8mm 1.2mm;
+                    background: #ffffff;
+                    font-size: 10.8px;
+                    line-height: 1.38;
                 }
 
-                .cr-ticket-center {
+                .cr-ticket-card {
+                    border: 1px solid #d1d5db;
+                    border-radius: 2.5mm;
+                    padding: 2.2mm 2mm;
+                }
+
+                .cr-center {
                     text-align: center;
                 }
 
-                .cr-ticket-title {
-                    margin: 0;
-                    font-size: 13px;
+                .cr-right {
+                    text-align: right;
+                }
+
+                .cr-muted {
+                    color: #4b5563;
+                }
+
+                .cr-company-name {
+                    margin: 0 0 1mm 0;
+                    font-size: 14px;
+                    font-weight: 800;
+                    line-height: 1.15;
+                    text-transform: uppercase;
+                    letter-spacing: 0.2px;
+                    word-break: break-word;
+                }
+
+                .cr-doc-pill {
+                    display: inline-block;
+                    margin-top: 1.4mm;
+                    padding: 0.8mm 2.2mm;
+                    border: 1px solid #111827;
+                    border-radius: 999px;
+                    font-size: 9.6px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.4px;
+                }
+
+                .cr-meta-line,
+                .cr-info-line {
+                    margin: 0.25mm 0;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
+                }
+
+                .cr-label {
                     font-weight: 700;
-                    line-height: 1.2;
+                    color: #111827;
                 }
 
-                .cr-ticket-block {
-                    margin-top: 4mm;
+                .cr-section {
+                    margin-top: 2.2mm;
+                    padding-top: 1.8mm;
+                    border-top: 1px dashed #9ca3af;
                 }
 
-                .cr-ticket-line {
-                    margin: 0;
-                    padding: 0;
+                .cr-section-title {
+                    margin: 0 0 1.2mm 0;
+                    font-size: 10.6px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.3px;
                 }
 
-                .cr-ticket-label {
+                .cr-badge {
+                    display: inline-block;
+                    margin-top: 0.8mm;
+                    padding: 0.5mm 1.8mm;
+                    border-radius: 999px;
+                    background: #f3f4f6;
+                    font-size: 9px;
                     font-weight: 700;
                 }
 
@@ -76,51 +128,55 @@
                 .cr-ticket-totals {
                     width: 100%;
                     border-collapse: collapse;
-                    table-layout: auto;
                 }
 
                 .cr-ticket-lines {
-                    margin-top: 4mm;
+                    margin-top: 1.2mm;
+                    table-layout: fixed;
                 }
 
                 .cr-ticket-lines col.qty {
-                    width: 16%;
+                    width: 15%;
                 }
 
                 .cr-ticket-lines col.desc {
-                    width: 54%;
+                    width: 53%;
                 }
 
-                .cr-ticket-lines col.amt {
-                    width: 30%;
+                .cr-ticket-lines col.price {
+                    width: 32%;
                 }
 
                 .cr-ticket-lines thead th {
-                    border-bottom: 1px solid #000;
-                    font-size: 12px;
-                    font-weight: 700;
-                    padding: 1.2mm 0;
+                    padding: 1mm 0.6mm;
+                    border-top: 1px solid #111827;
+                    border-bottom: 1px solid #111827;
+                    font-size: 9.4px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.25px;
                 }
 
-                .cr-ticket-lines td {
-                    padding: 0.6mm 0;
+                .cr-ticket-lines tbody td {
+                    padding: 1mm 0.6mm;
                     vertical-align: top;
-                    overflow-wrap: break-word;
+                    border-bottom: 1px dotted #d1d5db;
+                }
+
+                .cr-product-name {
+                    font-weight: 700;
                     word-break: break-word;
+                    overflow-wrap: anywhere;
                 }
 
-                .txt-left {
-                    text-align: left;
-                    padding-left: 1mm;
-                }
-
-                .txt-right {
-                    text-align: right;
-                    white-space: nowrap;
+                .cr-product-extra {
+                    margin-top: 0.4mm;
+                    font-size: 9.2px;
+                    color: #4b5563;
                 }
 
                 .cr-ticket-totals {
-                    margin-top: 4mm;
+                    margin-top: 1.6mm;
                 }
 
                 .cr-ticket-totals td {
@@ -128,123 +184,209 @@
                 }
 
                 .cr-ticket-totals .label {
-                    width: 58%;
-                    text-align: right;
                     font-weight: 700;
                 }
 
                 .cr-ticket-totals .amount {
-                    width: 42%;
                     text-align: right;
                     white-space: nowrap;
                 }
 
-                .cr-ticket-totals .final td {
-                    border-top: 1px solid #000;
-                    font-weight: 700;
-                    font-size: 13px;
+                .cr-ticket-totals .grand-total td {
                     padding-top: 1.4mm;
+                    border-top: 1px solid #111827;
+                    font-size: 12px;
+                    font-weight: 800;
                 }
 
-                .cr-ticket-footer {
-                    margin-top: 4mm;
-                    border-top: 1px solid #000;
-                    padding-top: 1.4mm;
+                .cr-code-box {
+                    margin-top: 2.2mm;
+                    padding-top: 1.8mm;
+                    border-top: 1px solid #d1d5db;
+                }
+
+                .cr-code-value {
+                    font-size: 9.1px;
+                    line-height: 1.25;
                     word-break: break-all;
                 }
 
-                .cr-ticket-small {
-                    font-size: 10px;
-                    line-height: 1.2;
+                .cr-legal {
+                    margin-top: 1.6mm;
+                    font-size: 9.1px;
+                    line-height: 1.25;
+                    color: #4b5563;
                 }
             </style>
 
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.basic_layout">
-                    <div class="page cr-pos-ticket-page" style="padding:1.5mm 1mm; width:100%; max-width:76mm; margin:0 auto; font-size:11px; line-height:1.35;">
+                    <div class="page cr-pos-ticket-page">
                         <t t-set="doc_type_map" t-value="{'te': 'Tiquete electrónico', 'fe': 'Factura electrónica', 'nc': 'Nota de crédito electrónica', 'nd': 'Nota de débito electrónica'}"/>
+                        <t t-set="status_map" t-value="{'draft': 'Borrador', 'pending': 'Pendiente', 'error_retry': 'Reintento', 'sent': 'Enviado', 'processing': 'Procesando', 'accepted': 'Aceptado', 'rejected': 'Rechazado', 'error': 'Error', 'not_applicable': 'No aplica'}"/>
                         <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
                         <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
                         <t t-set="company_email" t-value="o.company_id.email or (o.company_id.partner_id and o.company_id.partner_id.email)"/>
                         <t t-set="company_address" t-value="o.company_id.partner_id and o.company_id.partner_id._display_address(without_company=True)"/>
                         <t t-set="partner_address" t-value="o.partner_id and o.partner_id._display_address(without_company=True)"/>
                         <t t-set="partner_phone" t-value="o._cr_get_partner_phone(o.partner_id)"/>
+                        <t t-set="other_charges" t-value="o._cr_get_other_charges_payload()"/>
+                        <t t-set="other_charges_amount" t-value="sum(float(charge.get('amount') or 0.0) for charge in other_charges) if other_charges else 0.0"/>
+                        <t t-set="subtotal_amount" t-value="(o.amount_total or 0.0) - (o.amount_tax or 0.0) - other_charges_amount"/>
+                        <t t-set="customer_name" t-value="o.partner_id.display_name if o.partner_id else 'Consumidor final'"/>
 
-                        <div class="cr-ticket-center" style="text-align:center;">
-                            <h4 class="cr-ticket-title"><span t-esc="o.company_id.name"/></h4>
-                            <p class="cr-ticket-line" t-if="o.company_id.vat"><span class="cr-ticket-label">Identificación: </span><span t-esc="o.company_id.vat"/></p>
-                            <p class="cr-ticket-line" t-if="company_email"><span class="cr-ticket-label">Correo: </span><span t-esc="company_email"/></p>
-                            <p class="cr-ticket-line" t-if="company_phone"><span class="cr-ticket-label">Teléfono: </span><span t-esc="company_phone"/></p>
-                            <p class="cr-ticket-line" t-if="company_address"><span class="cr-ticket-label">Dirección: </span><span t-esc="(company_address or '').replace('\n', ' ').strip()"/></p>
-                        </div>
+                        <div class="cr-ticket-card">
+                            <div class="cr-center">
+                                <h4 class="cr-company-name"><span t-esc="o.company_id.name"/></h4>
+                                <div class="cr-meta-line" t-if="o.company_id.vat">
+                                    <span class="cr-label">Identificación:</span>
+                                    <span t-esc="o.company_id.vat"/>
+                                </div>
+                                <div class="cr-meta-line" t-if="company_email">
+                                    <span class="cr-label">Correo:</span>
+                                    <span t-esc="company_email"/>
+                                </div>
+                                <div class="cr-meta-line" t-if="company_phone">
+                                    <span class="cr-label">Teléfono:</span>
+                                    <span t-esc="company_phone"/>
+                                </div>
+                                <div class="cr-meta-line" t-if="company_address">
+                                    <span class="cr-label">Dirección:</span>
+                                    <span t-esc="(company_address or '').replace('\n', ' ').strip()"/>
+                                </div>
+                                <div class="cr-doc-pill">
+                                    <span t-esc="doc_type_label"/>
+                                </div>
+                                <div class="cr-badge" t-if="o.cr_fe_status">
+                                    Estado FE:
+                                    <span t-esc="status_map.get(o.cr_fe_status, o.cr_fe_status or '')"/>
+                                </div>
+                            </div>
 
-                        <div class="cr-ticket-block">
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Documento: </span><span t-esc="doc_type_label"/></p>
-                            <p class="cr-ticket-line" t-if="o.cr_fe_consecutivo"><span class="cr-ticket-label">Consecutivo: </span><span t-esc="o.cr_fe_consecutivo"/></p>
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Orden: </span><span t-esc="o.name or o.pos_reference"/></p>
-                            <p class="cr-ticket-line" t-if="o.date_order"><span class="cr-ticket-label">Fecha: </span><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></p>
-                        </div>
+                            <div class="cr-section">
+                                <div class="cr-section-title">Documento</div>
+                                <div class="cr-info-line" t-if="o.cr_fe_consecutivo">
+                                    <span class="cr-label">Consecutivo:</span>
+                                    <span t-esc="o.cr_fe_consecutivo"/>
+                                </div>
+                                <div class="cr-info-line">
+                                    <span class="cr-label">Orden:</span>
+                                    <span t-esc="o.name or o.pos_reference"/>
+                                </div>
+                                <div class="cr-info-line" t-if="o.pos_reference and o.pos_reference != o.name">
+                                    <span class="cr-label">Referencia POS:</span>
+                                    <span t-esc="o.pos_reference"/>
+                                </div>
+                                <div class="cr-info-line" t-if="o.date_order">
+                                    <span class="cr-label">Fecha:</span>
+                                    <span t-field="o.date_order" t-options='{"widget": "datetime"}'/>
+                                </div>
+                            </div>
 
-                        <div class="cr-ticket-block">
-                            <p class="cr-ticket-line cr-ticket-label">Datos del cliente</p>
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Nombre: </span><span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/></p>
-                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.vat"><span class="cr-ticket-label">Identificación: </span><span t-esc="o.partner_id.vat"/></p>
-                            <p class="cr-ticket-line" t-if="partner_phone"><span class="cr-ticket-label">Teléfono: </span><span t-esc="partner_phone"/></p>
-                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.email"><span class="cr-ticket-label">Correo: </span><span t-esc="o.partner_id.email"/></p>
-                            <p class="cr-ticket-line" t-if="partner_address"><span class="cr-ticket-label">Dirección: </span><span t-esc="(partner_address or '').replace('\n', ' ').strip()"/></p>
-                        </div>
+                            <div class="cr-section">
+                                <div class="cr-section-title">Cliente</div>
+                                <div class="cr-info-line">
+                                    <span class="cr-label">Nombre:</span>
+                                    <span t-esc="customer_name"/>
+                                </div>
+                                <div class="cr-info-line" t-if="o.partner_id and o.partner_id.vat">
+                                    <span class="cr-label">Identificación:</span>
+                                    <span t-esc="o.partner_id.vat"/>
+                                </div>
+                                <div class="cr-info-line" t-if="o.partner_id and o.partner_id.email">
+                                    <span class="cr-label">Correo:</span>
+                                    <span t-esc="o.partner_id.email"/>
+                                </div>
+                                <div class="cr-info-line" t-if="partner_phone">
+                                    <span class="cr-label">Teléfono:</span>
+                                    <span t-esc="partner_phone"/>
+                                </div>
+                                <div class="cr-info-line" t-if="partner_address">
+                                    <span class="cr-label">Dirección:</span>
+                                    <span t-esc="(partner_address or '').replace('\n', ' ').strip()"/>
+                                </div>
+                            </div>
 
-                        <table class="cr-ticket-lines" aria-label="Detalle de productos" style="width:100%; border-collapse:collapse; table-layout:auto;">
-                            <colgroup>
-                                <col class="qty"/>
-                                <col class="desc"/>
-                                <col class="amt"/>
-                            </colgroup>
-                            <thead>
-                                <tr>
-                                    <th class="txt-right" style="text-align:right;">Cant</th>
-                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Descripción</th>
-                                    <th class="txt-right" style="text-align:right;">Importe</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.lines" t-as="line">
-                                    <td class="txt-right" style="text-align:right;"><span t-esc="line.qty"/></td>
-                                    <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
-                                    <td class="txt-right" style="text-align:right; white-space:nowrap;"><span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                </tr>
-                            </tbody>
-                        </table>
+                            <div class="cr-section">
+                                <div class="cr-section-title">Detalle</div>
+                                <table class="cr-ticket-lines" aria-label="Detalle de productos">
+                                    <colgroup>
+                                        <col class="qty"/>
+                                        <col class="desc"/>
+                                        <col class="price"/>
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th class="cr-right">Cant.</th>
+                                            <th>Producto</th>
+                                            <th class="cr-right">Subtotal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr t-foreach="o.lines" t-as="line" t-key="line.id">
+                                            <td class="cr-right">
+                                                <span t-esc="'%.2f' % (line.qty or 0.0)"/>
+                                            </td>
+                                            <td>
+                                                <div class="cr-product-name">
+                                                    <span t-esc="line.full_product_name or line.product_id.display_name"/>
+                                                </div>
+                                                <div class="cr-product-extra" t-if="line.discount">
+                                                    Descuento:
+                                                    <span t-esc="'%.2f' % (line.discount or 0.0)"/>%
+                                                </div>
+                                            </td>
+                                            <td class="cr-right">
+                                                <span t-out="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
 
-                        <t t-set="other_charges_amount" t-value="o.cr_other_charges_amount or 0.0"/>
-                        <t t-set="subtotal_amount" t-value="o.amount_total - o.amount_tax - other_charges_amount"/>
+                                <table class="cr-ticket-totals" aria-label="Totales">
+                                    <tbody>
+                                        <tr>
+                                            <td class="label">Subtotal</td>
+                                            <td class="amount">
+                                                <span t-out="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="label">Impuestos</td>
+                                            <td class="amount">
+                                                <span t-out="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                            </td>
+                                        </tr>
+                                        <tr t-foreach="other_charges" t-as="charge">
+                                            <td class="label">
+                                                <span t-esc="charge.get('description') or 'Otros cargos'"/>
+                                            </td>
+                                            <td class="amount">
+                                                <span t-out="charge.get('amount')" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                            </td>
+                                        </tr>
+                                        <tr class="grand-total">
+                                            <td class="label">Total</td>
+                                            <td class="amount">
+                                                <span t-out="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
 
-                        <table class="cr-ticket-totals" aria-label="Totales" style="width:100%; border-collapse:collapse;">
-                            <tbody>
-                                <tr>
-                                    <td class="label" style="text-align:right; font-weight:700;">Subtotal</td>
-                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                </tr>
-                                <tr>
-                                    <td class="label" style="text-align:right; font-weight:700;">Impuesto</td>
-                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                </tr>
-                                <tr t-if="other_charges_amount">
-                                    <td class="label" style="text-align:right; font-weight:700;">Servicio 10%</td>
-                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                </tr>
-                                <tr class="final">
-                                    <td class="label" style="text-align:right; font-weight:700;">Total</td>
-                                    <td class="amount" style="text-align:right; white-space:nowrap; font-weight:700;"><span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <div t-if="o.cr_fe_clave" class="cr-ticket-footer">
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Clave: </span><span t-esc="o.cr_fe_clave"/></p>
-                            <div class="cr-ticket-small">
-                                <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
-                                <div>Versión XML 4.4</div>
+                            <div class="cr-code-box" t-if="o.cr_fe_clave">
+                                <div class="cr-section-title" style="margin-bottom: 0.8mm;">Comprobante electrónico</div>
+                                <div class="cr-info-line">
+                                    <span class="cr-label">Clave:</span>
+                                </div>
+                                <div class="cr-code-value">
+                                    <span t-esc="o.cr_fe_clave"/>
+                                </div>
+                                <div class="cr-legal">
+                                    <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024.</div>
+                                    <div>Versión XML 4.4</div>
+                                </div>
                             </div>
                         </div>
                     </div>
