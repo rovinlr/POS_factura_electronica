@@ -116,8 +116,8 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertIn("<CodigoActividadReceptor>620100</CodigoActividadReceptor>", xml_out)
 
-    def test_report_wizard_domain_uses_exact_local_day_boundaries(self):
-        wizard = self.env["pos.order.fe.report.wizard"].create(
+    def test_report_wizard_domain_uses_configured_tz_boundaries(self):
+        wizard = self.env["pos.order.fe.report.wizard"].with_context(tz="America/Costa_Rica").create(
             {
                 "date_from": "2026-03-21",
                 "date_to": "2026-03-21",
@@ -129,8 +129,8 @@ class TestPosEInvoice(TransactionCase):
         date_from_rule = next(rule for rule in domain if rule[0] == "date_order" and rule[1] == ">=")
         date_to_rule = next(rule for rule in domain if rule[0] == "date_order" and rule[1] == "<=")
 
-        self.assertEqual(date_from_rule[2], "2026-03-21 00:00:00")
-        self.assertEqual(date_to_rule[2], "2026-03-21 23:59:59")
+        self.assertEqual(date_from_rule[2], "2026-03-21 06:00:00")
+        self.assertEqual(date_to_rule[2], "2026-03-22 05:59:59")
 
     def test_sync_last_consecutivo_in_einvoice_config_uses_service_method_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
