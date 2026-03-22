@@ -126,13 +126,19 @@
                         </table>
 
                         <div style="margin-top: 8px;">
+                            <t t-set="other_charges_amount" t-value="o.cr_other_charges_amount or 0.0"/>
+                            <t t-set="subtotal_amount" t-value="o.amount_total - o.amount_tax - other_charges_amount"/>
                             <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px;">
                                 <span style="text-align: right;">Subtotal</span>
-                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="(o.amount_total - o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
                             <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px;">
                                 <span style="text-align: right;">Impuesto</span>
                                 <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </div>
+                            <div t-if="other_charges_amount" style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px;">
+                                <span style="text-align: right;">Servicio 10%</span>
+                                <span style="display: inline-block; min-width: 90px; text-align: right;" t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                             </div>
                             <div style="display: flex; justify-content: flex-end; align-items: baseline; gap: 4px; font-weight: 700;">
                                 <span style="text-align: right;">Total</span>

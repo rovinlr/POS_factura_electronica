@@ -8,9 +8,30 @@ const SERVICE_CHARGE_RATE = 0.1;
 
 const roundAmount = (value) => Math.round(value * 100000) / 100000;
 
+const getLinesSubtotal = (order) => {
+    const lines = order?.get_orderlines?.() || order?.getOrderlines?.() || [];
+    if (!Array.isArray(lines) || !lines.length) {
+        return 0;
+    }
+    return lines.reduce((acc, line) => {
+        const lineSubtotal = Number(
+            line?.get_price_without_tax?.() ??
+                line?.getPriceWithoutTax?.() ??
+                line?.price_subtotal ??
+                line?.price_subtotal_incl ??
+                0
+        );
+        return acc + (Number.isFinite(lineSubtotal) ? lineSubtotal : 0);
+    }, 0);
+};
+
 const getOrderSubtotal = (order) => {
     const subtotal = Number(order?.get_total_without_tax?.() ?? order?.getTotalWithoutTax?.() ?? 0);
-    return Number.isFinite(subtotal) ? subtotal : 0;
+    if (Number.isFinite(subtotal) && subtotal > 0) {
+        return subtotal;
+    }
+    const linesSubtotal = Number(getLinesSubtotal(order));
+    return Number.isFinite(linesSubtotal) && linesSubtotal > 0 ? linesSubtotal : 0;
 };
 
 const computeServiceCharge = (subtotal) => {
@@ -81,6 +102,28 @@ patch(PosOrder.prototype, {
 
     getOtherChargesTotal() {
         return computeChargesTotal(this.getOtherCharges());
+    },
+
+    hasServiceCharge10() {
+        return this.getOtherCharges().some((charge) => String(charge?.code || "") === SERVICE_CHARGE_CODE);
+    },
+
+    toggleServiceCharge10() {
+        this.assertEditable?.();
+        if (this.hasServiceCharge10()) {
+            this.setOtherCharges([]);
+            return false;
+        }
+        this.setOtherCharges([
+            {
+                type: "01",
+                code: SERVICE_CHARGE_CODE,
+                percent: 10,
+                description: "Impuesto de servicio 10%",
+                currency: "CRC",
+            },
+        ]);
+        return true;
     },
 
     get_total_with_tax() {
