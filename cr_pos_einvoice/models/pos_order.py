@@ -1087,6 +1087,21 @@ class PosOrder(models.Model):
 
     def _cr_render_receipt_pdf_content(self):
         self.ensure_one()
+        # Enterprise-safe rendering strategy:
+        # 1) Force deterministic QWeb PDF rendering for pos.order (mail attachment quality).
+        # 2) Reuse existing attachment only if report rendering is unavailable.
+        # 3) Keep POS HTML-to-PDF as last-resort compatibility fallback.
+        report = self.env.ref("cr_pos_einvoice.action_report_pos_order_ticket_cr", raise_if_not_found=False)
+        if report and report.report_name and report.model == "pos.order" and report.report_type == "qweb-pdf":
+            report_engine = self.env["ir.actions.report"].sudo()
+            pdf_content, _content_type = report_engine._render_qweb_pdf(report.report_name, res_ids=self.ids)
+            if pdf_content:
+                return pdf_content
+
+        existing_attachment = self._cr_get_existing_receipt_pdf_attachment()
+        if existing_attachment and existing_attachment.datas:
+            return base64.b64decode(existing_attachment.datas)
+
         wrapped_html = self._cr_wrap_receipt_html_for_pdf()
         if wrapped_html:
             report_engine = self.env["ir.actions.report"].sudo()
@@ -1095,9 +1110,7 @@ class PosOrder(models.Model):
                 landscape=False,
                 specific_paperformat_args={"margin_top": 6, "margin_bottom": 6, "margin_left": 4, "margin_right": 4},
             )
-        fallback_attachment = self._cr_get_or_create_pdf_attachment()
-        if fallback_attachment and fallback_attachment.datas:
-            return base64.b64decode(fallback_attachment.datas)
+
         return b""
 
     def _cr_upsert_receipt_pdf_attachment(self, pdf_content):
