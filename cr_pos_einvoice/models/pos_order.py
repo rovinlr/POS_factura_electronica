@@ -9,7 +9,7 @@ from lxml import etree
 from markupsafe import Markup, escape
 
 from psycopg2 import IntegrityError
-from psycopg2.errors import InFailedSqlTransaction, SerializationFailure
+from psycopg2.errors import InFailedSqlTransaction, LockNotAvailable, SerializationFailure
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -1151,8 +1151,33 @@ class PosOrder(models.Model):
             and self._cr_get_customer_email()
         )
 
+    def _cr_acquire_email_send_lock(self):
+        """Serialize FE email dispatch per POS order to avoid duplicate sends."""
+        self.ensure_one()
+        try:
+            with self.env.cr.savepoint(flush=False):
+                self.env.cr.execute("SELECT id FROM pos_order WHERE id = %s FOR UPDATE NOWAIT", (self.id,))
+            return True
+        except LockNotAvailable:
+            self._logger.info(
+                "Skipping FE email dispatch for POS order %s because another transaction holds the send lock.",
+                self.id,
+            )
+            return False
+        except (SerializationFailure, InFailedSqlTransaction) as error:
+            self._logger.warning(
+                "Concurrent transaction while acquiring FE email lock for POS order %s: %s",
+                self.id,
+                error,
+            )
+            return False
+
     def _cr_try_send_accepted_email(self):
         self.ensure_one()
+        if not self._cr_acquire_email_send_lock():
+            return False
+
+        self.invalidate_recordset(["cr_fe_status", "cr_fe_email_sent", "cr_fe_email_error", "partner_id", "config_id"])
         if not self._cr_should_send_accepted_email():
             return False
 
