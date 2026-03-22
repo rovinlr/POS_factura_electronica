@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <record id="paperformat_pos_ticket_pdf" model="report.paperformat">
-        <field name="name">POS Ticket CR A4</field>
+        <field name="name">POS Ticket CR 80mm</field>
         <field name="default" eval="False"/>
-        <field name="format">A4</field>
-        <field name="page_width">0</field>
-        <field name="page_height">0</field>
+        <field name="format">custom</field>
+        <field name="page_width">80</field>
+        <field name="page_height">297</field>
         <field name="orientation">Portrait</field>
-        <field name="margin_top">8</field>
-        <field name="margin_bottom">8</field>
-        <field name="margin_left">8</field>
-        <field name="margin_right">8</field>
+        <field name="margin_top">2</field>
+        <field name="margin_bottom">2</field>
+        <field name="margin_left">2</field>
+        <field name="margin_right">2</field>
         <field name="header_line" eval="False"/>
         <field name="header_spacing">0</field>
         <field name="dpi">203</field>
@@ -31,14 +31,6 @@
     <template id="report_pos_order_ticket_cr">
         <t t-call="web.html_container">
             <style type="text/css">
-                .article.o_report_layout_standard,
-                .article.o_report_layout_striped,
-                .o_report_layout_standard,
-                .o_report_layout_striped {
-                    padding: 0 !important;
-                    margin: 0 !important;
-                }
-
                 .cr-pos-ticket-page,
                 .cr-pos-ticket-page * {
                     box-sizing: border-box;
@@ -48,12 +40,10 @@
 
                 .cr-pos-ticket-page {
                     width: 100%;
-                    max-width: 680px;
+                    max-width: 76mm;
                     margin: 0 auto;
-                    padding: 8mm 10mm;
-                    border: 1px solid #d9d9d9;
-                    border-radius: 4px;
-                    font-size: 12px;
+                    padding: 1.5mm 1mm;
+                    font-size: 11px;
                     line-height: 1.35;
                     background: #fff;
                 }
@@ -86,7 +76,7 @@
                 .cr-ticket-totals {
                     width: 100%;
                     border-collapse: collapse;
-                    table-layout: fixed;
+                    table-layout: auto;
                 }
 
                 .cr-ticket-lines {
@@ -94,15 +84,15 @@
                 }
 
                 .cr-ticket-lines col.qty {
-                    width: 12%;
+                    width: 16%;
                 }
 
                 .cr-ticket-lines col.desc {
-                    width: 60%;
+                    width: 54%;
                 }
 
                 .cr-ticket-lines col.amt {
-                    width: 28%;
+                    width: 30%;
                 }
 
                 .cr-ticket-lines thead th {
@@ -113,7 +103,7 @@
                 }
 
                 .cr-ticket-lines td {
-                    padding: 1mm 0;
+                    padding: 0.6mm 0;
                     vertical-align: top;
                     overflow-wrap: break-word;
                     word-break: break-word;
@@ -138,13 +128,13 @@
                 }
 
                 .cr-ticket-totals .label {
-                    width: 64%;
+                    width: 58%;
                     text-align: right;
                     font-weight: 700;
                 }
 
                 .cr-ticket-totals .amount {
-                    width: 36%;
+                    width: 42%;
                     text-align: right;
                     white-space: nowrap;
                 }
@@ -171,7 +161,7 @@
 
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.basic_layout">
-                    <div class="page cr-pos-ticket-page">
+                    <div class="page cr-pos-ticket-page" style="padding:1.5mm 1mm; width:100%; max-width:76mm; margin:0 auto; font-size:11px; line-height:1.35;">
                         <t t-set="doc_type_map" t-value="{'te': 'Tiquete electrónico', 'fe': 'Factura electrónica', 'nc': 'Nota de crédito electrónica', 'nd': 'Nota de débito electrónica'}"/>
                         <t t-set="doc_type_label" t-value="doc_type_map.get(o.cr_fe_document_type or 'te', 'Comprobante electrónico')"/>
                         <t t-set="company_phone" t-value="o.company_id.phone or (o.company_id.partner_id and o.company_id.partner_id.phone)"/>
@@ -180,7 +170,7 @@
                         <t t-set="partner_address" t-value="o.partner_id and o.partner_id._display_address(without_company=True)"/>
                         <t t-set="partner_phone" t-value="o._cr_get_partner_phone(o.partner_id)"/>
 
-                        <div class="cr-ticket-center">
+                        <div class="cr-ticket-center" style="text-align:center;">
                             <h4 class="cr-ticket-title"><span t-esc="o.company_id.name"/></h4>
                             <p class="cr-ticket-line" t-if="o.company_id.vat"><span class="cr-ticket-label">Identificación: </span><span t-esc="o.company_id.vat"/></p>
                             <p class="cr-ticket-line" t-if="company_email"><span class="cr-ticket-label">Correo: </span><span t-esc="company_email"/></p>
@@ -204,7 +194,7 @@
                             <p class="cr-ticket-line" t-if="partner_address"><span class="cr-ticket-label">Dirección: </span><span t-esc="(partner_address or '').replace('\n', ' ').strip()"/></p>
                         </div>
 
-                        <table class="cr-ticket-lines" aria-label="Detalle de productos">
+                        <table class="cr-ticket-lines" aria-label="Detalle de productos" style="width:100%; border-collapse:collapse; table-layout:auto;">
                             <colgroup>
                                 <col class="qty"/>
                                 <col class="desc"/>
@@ -212,16 +202,16 @@
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th class="txt-right">Cant</th>
-                                    <th class="txt-left">Descripción</th>
-                                    <th class="txt-right">Importe</th>
+                                    <th class="txt-right" style="text-align:right;">Cant</th>
+                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Descripción</th>
+                                    <th class="txt-right" style="text-align:right;">Importe</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="o.lines" t-as="line">
-                                    <td class="txt-right"><span t-esc="line.qty"/></td>
-                                    <td class="txt-left"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
-                                    <td class="txt-right"><span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                    <td class="txt-right" style="text-align:right;"><span t-esc="line.qty"/></td>
+                                    <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
+                                    <td class="txt-right" style="text-align:right; white-space:nowrap;"><span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -229,23 +219,23 @@
                         <t t-set="other_charges_amount" t-value="o.cr_other_charges_amount or 0.0"/>
                         <t t-set="subtotal_amount" t-value="o.amount_total - o.amount_tax - other_charges_amount"/>
 
-                        <table class="cr-ticket-totals" aria-label="Totales">
+                        <table class="cr-ticket-totals" aria-label="Totales" style="width:100%; border-collapse:collapse;">
                             <tbody>
                                 <tr>
-                                    <td class="label">Subtotal</td>
-                                    <td class="amount"><span t-esc="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                    <td class="label" style="text-align:right; font-weight:700;">Subtotal</td>
+                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="subtotal_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr>
-                                    <td class="label">Impuesto</td>
-                                    <td class="amount"><span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                    <td class="label" style="text-align:right; font-weight:700;">Impuesto</td>
+                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="o.amount_tax" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr t-if="other_charges_amount">
-                                    <td class="label">Servicio 10%</td>
-                                    <td class="amount"><span t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                    <td class="label" style="text-align:right; font-weight:700;">Servicio 10%</td>
+                                    <td class="amount" style="text-align:right; white-space:nowrap;"><span t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                                 <tr class="final">
-                                    <td class="label">Total</td>
-                                    <td class="amount"><span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                    <td class="label" style="text-align:right; font-weight:700;">Total</td>
+                                    <td class="amount" style="text-align:right; white-space:nowrap; font-weight:700;"><span t-esc="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                             </tbody>
                         </table>
