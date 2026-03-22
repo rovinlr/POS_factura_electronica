@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, time
 from io import BytesIO
 
+import pytz
 from odoo import _, fields, models
 from odoo.exceptions import ValidationError
 
@@ -23,16 +24,20 @@ class PosOrderFeReportWizard(models.TransientModel):
 
     def _build_report_domain(self):
         self.ensure_one()
-        # En este flujo, pos.order.date_order ya se persiste en fecha/hora local
-        # de la operación. Por ello el filtro del reporte debe usar exactamente
-        # los límites locales capturados por el usuario sin conversión de zona.
-        start_dt = datetime.combine(self.date_from, time.min)
-        end_dt = datetime.combine(self.date_to, time.max)
+        # Las fechas del asistente son locales al usuario; para filtrar por
+        # date_order (UTC en base de datos) convertimos los límites exactos del
+        # día local usando la zona horaria configurada.
+        user_tz_name = self.env.context.get("tz") or self.env.user.tz or "UTC"
+        user_tz = pytz.timezone(user_tz_name)
+        start_local = user_tz.localize(datetime.combine(self.date_from, time.min))
+        end_local = user_tz.localize(datetime.combine(self.date_to, time.max.replace(microsecond=0)))
+        start_utc = start_local.astimezone(pytz.UTC).replace(tzinfo=None)
+        end_utc = end_local.astimezone(pytz.UTC).replace(tzinfo=None)
 
         return [
             ("state", "in", ["paid", "done", "invoiced"]),
-            ("date_order", ">=", fields.Datetime.to_string(start_dt)),
-            ("date_order", "<=", fields.Datetime.to_string(end_dt)),
+            ("date_order", ">=", fields.Datetime.to_string(start_utc)),
+            ("date_order", "<=", fields.Datetime.to_string(end_utc)),
         ]
 
     def _get_report_orders(self):
