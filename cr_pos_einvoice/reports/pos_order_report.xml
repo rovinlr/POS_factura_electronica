@@ -93,8 +93,8 @@
                     width: 14%;
                 }
 
-                .cr-ticket-lines col.desc {
-                    width: 54%;
+                .cr-ticket-lines col.qty {
+                    width: 13%;
                 }
 
                 .cr-ticket-lines col.amt {
@@ -205,8 +205,8 @@
 
                         <table class="cr-ticket-lines" aria-label="Detalle de productos" style="width:100%; border-collapse:collapse; table-layout:auto;">
                             <colgroup>
-                                <col class="qty"/>
                                 <col class="desc"/>
+                                <col class="qty"/>
                                 <col class="amt"/>
                             </colgroup>
                             <thead>
@@ -218,8 +218,8 @@
                             </thead>
                             <tbody>
                                 <tr t-foreach="o.lines" t-as="line">
-                                    <td class="txt-right" style="text-align:right;"><span t-esc="line.qty"/></td>
                                     <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
+                                    <td class="txt-right" style="text-align:right;"><span t-esc="line.qty"/></td>
                                     <td class="txt-right" style="text-align:right; white-space:nowrap;"><span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                             </tbody>
