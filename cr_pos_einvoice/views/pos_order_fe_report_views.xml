@@ -96,6 +96,7 @@
                     <h2>Reporte FE POS</h2>
                     <t t-set="wizard" t-value="docs and docs[0]"/>
                     <t t-set="orders" t-value="wizard and wizard._get_report_orders() or []"/>
+                    <t t-set="totals" t-value="wizard and wizard._get_report_totals(orders) or {}"/>
                     <p>Rango: <span t-esc="wizard.date_from"/> - <span t-esc="wizard.date_to"/></p>
                     <p>Registros: <span t-esc="len(orders)"/></p>
                     <table class="table table-sm table-bordered" style="width: 100%; font-size: 11px;">
@@ -129,8 +130,21 @@
                                 <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_4)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.cr_taxable_amount_13)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.amount_tax)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
-                                <td class="text-right"><span t-field="o.amount_total" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
+                                <td class="text-right"><span t-out="wizard._get_signed_report_amount(o, o.amount_total)" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 <td><span t-field="o.cr_fe_status"/></td>
+                            </tr>
+                            <tr style="font-weight: 700; background-color: #f2f2f2;">
+                                <td colspan="3">Totales</td>
+                                <td class="text-right"><span t-out="totals.get('exempt', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('nonsubject', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('exonerated', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('taxable_1', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('taxable_2', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('taxable_4', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('taxable_13', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('tax', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td class="text-right"><span t-out="totals.get('total', 0.0)" t-options='{"widget": "monetary", "display_currency": wizard.env.company.currency_id}'/></td>
+                                <td/>
                             </tr>
                         </tbody>
                     </table>
