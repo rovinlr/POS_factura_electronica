@@ -9,10 +9,11 @@ from lxml import etree
 from markupsafe import Markup, escape
 
 from psycopg2 import IntegrityError
-from psycopg2.errors import InFailedSqlTransaction, SerializationFailure
+from psycopg2.errors import InFailedSqlTransaction, LockNotAvailable, SerializationFailure
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_is_zero
 
 
 class PosOrder(models.Model):
@@ -193,12 +194,38 @@ class PosOrder(models.Model):
         for order in self:
             taxable = 0.0
             exempt = 0.0
+            nonsubject = 0.0
+            exonerated = 0.0
             rates = set()
             taxable_by_rate = {rate: 0.0 for rate in tracked_rates}
             for line in order.lines:
                 subtotal = line.price_subtotal or 0.0
                 taxes = line.tax_ids_after_fiscal_position
-                positive_taxes = taxes.filtered(lambda tax: tax.amount and tax.amount > 0)
+                code_taxes = {
+                    str(code): taxes.filtered(lambda tax: getattr(tax, "fp_tax_rate_code_iva", False) == code)
+                    for code in ("01", "08", "10")
+                }
+                has_nonsubject = bool(code_taxes["01"])
+                has_exempt = bool(code_taxes["10"])
+                has_code_08 = bool(code_taxes["08"])
+                code_08_positive = code_taxes["08"].filtered(lambda tax: (tax.amount or 0.0) > 0)
+                code_08_zero = code_taxes["08"] - code_08_positive
+
+                if has_nonsubject:
+                    nonsubject += subtotal
+                    continue
+
+                if has_exempt:
+                    exempt += subtotal
+                    continue
+
+                if has_code_08 and code_08_zero and not code_08_positive:
+                    # Exonerado: Hacienda usa código 08 (13%) con monto de impuesto en cero.
+                    exonerated += subtotal
+                    rates.add("13%")
+                    continue
+
+                positive_taxes = taxes.filtered(lambda tax: (tax.amount or 0.0) > 0)
                 if positive_taxes:
                     taxable += subtotal
                     for tax in positive_taxes:
@@ -220,10 +247,10 @@ class PosOrder(models.Model):
             order.cr_taxable_amount_4 = taxable_by_rate[4.0]
             order.cr_taxable_amount_13 = taxable_by_rate[13.0]
             order.cr_exempt_amount = exempt
-            # Se dejan en 0.0 para preservar consistencia cuando no se dispone de
-            # categorización fiscal explícita en POS por línea.
-            order.cr_nonsubject_amount = 0.0
-            order.cr_exonerated_amount = 0.0
+            order.cr_nonsubject_amount = nonsubject
+            order.cr_exonerated_amount = exonerated
+            if exonerated and float_is_zero(taxable_by_rate[13.0], precision_rounding=order.currency_id.rounding):
+                rates.add("13%")
             order.cr_tax_rate_display = ", ".join(sorted(rates)) if rates else "0%"
 
     def _compute_cr_fe_attachment_ids(self):
@@ -1151,8 +1178,33 @@ class PosOrder(models.Model):
             and self._cr_get_customer_email()
         )
 
+    def _cr_acquire_email_send_lock(self):
+        """Serialize FE email dispatch per POS order to avoid duplicate sends."""
+        self.ensure_one()
+        try:
+            with self.env.cr.savepoint(flush=False):
+                self.env.cr.execute("SELECT id FROM pos_order WHERE id = %s FOR UPDATE NOWAIT", (self.id,))
+            return True
+        except LockNotAvailable:
+            self._logger.info(
+                "Skipping FE email dispatch for POS order %s because another transaction holds the send lock.",
+                self.id,
+            )
+            return False
+        except (SerializationFailure, InFailedSqlTransaction) as error:
+            self._logger.warning(
+                "Concurrent transaction while acquiring FE email lock for POS order %s: %s",
+                self.id,
+                error,
+            )
+            return False
+
     def _cr_try_send_accepted_email(self):
         self.ensure_one()
+        if not self._cr_acquire_email_send_lock():
+            return False
+
+        self.invalidate_recordset(["cr_fe_status", "cr_fe_email_sent", "cr_fe_email_error", "partner_id", "config_id"])
         if not self._cr_should_send_accepted_email():
             return False
 
