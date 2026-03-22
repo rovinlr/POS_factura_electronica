@@ -1662,6 +1662,10 @@ class PosOrder(models.Model):
             normalized = self._cr_normalize_other_charges(candidate, subtotal=subtotal)
             if normalized:
                 return normalized
+        service_flag = payload.get("service_charge_10") or payload.get("service_charge")
+        if isinstance(service_flag, str):
+            service_flag = service_flag.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
+        computed_service_charge = self._cr_build_service_charge(subtotal) if service_flag else {}
         if computed_service_charge:
             return [computed_service_charge]
         return []
