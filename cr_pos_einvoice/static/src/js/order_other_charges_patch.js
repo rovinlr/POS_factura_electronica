@@ -104,6 +104,28 @@ patch(PosOrder.prototype, {
         return computeChargesTotal(this.getOtherCharges());
     },
 
+    hasServiceCharge10() {
+        return this.getOtherCharges().some((charge) => String(charge?.code || "") === SERVICE_CHARGE_CODE);
+    },
+
+    toggleServiceCharge10() {
+        this.assertEditable?.();
+        if (this.hasServiceCharge10()) {
+            this.setOtherCharges([]);
+            return false;
+        }
+        this.setOtherCharges([
+            {
+                type: "01",
+                code: SERVICE_CHARGE_CODE,
+                percent: 10,
+                description: "Impuesto de servicio 10%",
+                currency: "CRC",
+            },
+        ]);
+        return true;
+    },
+
     get_total_with_tax() {
         const baseTotal = Number(super.get_total_with_tax?.(...arguments) ?? 0);
         return roundAmount(baseTotal + this.getOtherChargesTotal());

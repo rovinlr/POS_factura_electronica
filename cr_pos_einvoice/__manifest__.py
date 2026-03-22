@@ -20,7 +20,6 @@
         "point_of_sale._assets_pos": [
             "cr_pos_einvoice/static/src/js/receipt_einvoice_patch.js",
             "cr_pos_einvoice/static/src/js/order_other_charges_patch.js",
-            "cr_pos_einvoice/static/src/js/service_charge_button.js",
             "cr_pos_einvoice/static/src/js/pos_sync_einvoice_patch.js",
             "cr_pos_einvoice/static/src/js/receipt_capture_patch.js",
             "cr_pos_einvoice/static/src/xml/cr_pos_receipt.xml",

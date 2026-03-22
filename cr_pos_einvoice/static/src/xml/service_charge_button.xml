@@ -4,12 +4,12 @@
         <xpath expr="//div[hasclass('control-buttons')]" position="inside">
             <button
                 class="control-button"
-                t-att-class="{'highlight': isServiceChargeActive}"
-                t-on-click.stop.prevent="onClickServiceCharge"
-                t-att-title="isServiceChargeActive ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
+                t-att-class="{'highlight': this.pos.get_order()?.hasServiceCharge10?.()}"
+                t-on-click.stop.prevent="() => this.pos.get_order()?.toggleServiceCharge10?.()"
+                t-att-title="this.pos.get_order()?.hasServiceCharge10?.() ? 'Quitar impuesto de servicio 10%' : 'Aplicar impuesto de servicio 10%'"
             >
                 <i class="fa fa-percent me-1" role="img" aria-label="Servicio"/>
-                <span t-esc="isServiceChargeActive ? 'Servicio 10%: ON' : 'Servicio 10%: OFF'"/>
+                <span t-esc="this.pos.get_order()?.hasServiceCharge10?.() ? 'Servicio 10%: ON' : 'Servicio 10%: OFF'"/>
             </button>
         </xpath>
     </t>
