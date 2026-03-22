@@ -57,6 +57,31 @@ class PosOrderFeReportWizard(models.TransientModel):
         self.ensure_one()
         return (amount or 0.0) * self._get_order_report_sign(order)
 
+    def _get_report_totals(self, orders):
+        self.ensure_one()
+        totals = {
+            "exempt": 0.0,
+            "nonsubject": 0.0,
+            "exonerated": 0.0,
+            "taxable_1": 0.0,
+            "taxable_2": 0.0,
+            "taxable_4": 0.0,
+            "taxable_13": 0.0,
+            "tax": 0.0,
+            "total": 0.0,
+        }
+        for order in orders:
+            totals["exempt"] += self._get_signed_report_amount(order, order.cr_exempt_amount)
+            totals["nonsubject"] += self._get_signed_report_amount(order, order.cr_nonsubject_amount)
+            totals["exonerated"] += self._get_signed_report_amount(order, order.cr_exonerated_amount)
+            totals["taxable_1"] += self._get_signed_report_amount(order, order.cr_taxable_amount_1)
+            totals["taxable_2"] += self._get_signed_report_amount(order, order.cr_taxable_amount_2)
+            totals["taxable_4"] += self._get_signed_report_amount(order, order.cr_taxable_amount_4)
+            totals["taxable_13"] += self._get_signed_report_amount(order, order.cr_taxable_amount_13)
+            totals["tax"] += self._get_signed_report_amount(order, order.amount_tax)
+            totals["total"] += self._get_signed_report_amount(order, order.amount_total)
+        return totals
+
     def action_generate_report(self):
         self.ensure_one()
         if self.date_from > self.date_to:
@@ -79,6 +104,8 @@ class PosOrderFeReportWizard(models.TransientModel):
         date_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm", "border": 1})
         text_format = workbook.add_format({"border": 1})
         amount_format = workbook.add_format({"num_format": "#,##0.00", "border": 1})
+        total_label_format = workbook.add_format({"bold": True, "bg_color": "#F2F2F2", "border": 1})
+        total_amount_format = workbook.add_format({"bold": True, "bg_color": "#F2F2F2", "num_format": "#,##0.00", "border": 1})
 
         headers = [
             _("Fecha"),
@@ -100,6 +127,7 @@ class PosOrderFeReportWizard(models.TransientModel):
             sheet.write(0, col, header, header_format)
 
         row = 1
+        totals = self._get_report_totals(orders)
         for order in orders:
             sheet.write_datetime(row, 0, fields.Datetime.from_string(order.date_order), date_format)
             sheet.write(row, 1, dict(order._fields["cr_fe_document_type"].selection).get(order.cr_fe_document_type, ""), text_format)
@@ -112,9 +140,23 @@ class PosOrderFeReportWizard(models.TransientModel):
             sheet.write_number(row, 8, self._get_signed_report_amount(order, order.cr_taxable_amount_4), amount_format)
             sheet.write_number(row, 9, self._get_signed_report_amount(order, order.cr_taxable_amount_13), amount_format)
             sheet.write_number(row, 10, self._get_signed_report_amount(order, order.amount_tax), amount_format)
-            sheet.write_number(row, 11, order.amount_total or 0.0, amount_format)
+            sheet.write_number(row, 11, self._get_signed_report_amount(order, order.amount_total), amount_format)
             sheet.write(row, 12, dict(order._fields["cr_fe_status"].selection).get(order.cr_fe_status, ""), text_format)
             row += 1
+
+        sheet.write(row, 0, _("Totales"), total_label_format)
+        sheet.write(row, 1, "", total_label_format)
+        sheet.write(row, 2, "", total_label_format)
+        sheet.write_number(row, 3, totals["exempt"], total_amount_format)
+        sheet.write_number(row, 4, totals["nonsubject"], total_amount_format)
+        sheet.write_number(row, 5, totals["exonerated"], total_amount_format)
+        sheet.write_number(row, 6, totals["taxable_1"], total_amount_format)
+        sheet.write_number(row, 7, totals["taxable_2"], total_amount_format)
+        sheet.write_number(row, 8, totals["taxable_4"], total_amount_format)
+        sheet.write_number(row, 9, totals["taxable_13"], total_amount_format)
+        sheet.write_number(row, 10, totals["tax"], total_amount_format)
+        sheet.write_number(row, 11, totals["total"], total_amount_format)
+        sheet.write(row, 12, "", total_label_format)
 
         sheet.set_column(0, 2, 22)
         sheet.set_column(3, 12, 16)
