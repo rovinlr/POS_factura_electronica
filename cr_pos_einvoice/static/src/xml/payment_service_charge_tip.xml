@@ -8,8 +8,8 @@
     >
         <xpath expr="//div[hasclass('payment-buttons')]" position="inside">
             <button
-                t-if="this.shouldShowServiceChargeButton && this.shouldShowServiceChargeButton()"
-                t-att-class="(this.isServiceChargeApplied && this.isServiceChargeApplied()) ? 'button btn btn-primary py-3' : 'button btn btn-light py-3'"
+                t-if="this.shouldShowServiceChargeButton &amp;&amp; this.shouldShowServiceChargeButton()"
+                t-att-class="(this.isServiceChargeApplied &amp;&amp; this.isServiceChargeApplied()) ? 'button btn btn-primary py-3' : 'button btn btn-light py-3'"
                 t-on-click="onClickServiceChargeButton"
             >
                 <span t-esc="this.getServiceChargeLabel ? this.getServiceChargeLabel() : 'Servicio'"/>
