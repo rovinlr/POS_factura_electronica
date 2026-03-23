@@ -1495,6 +1495,31 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(payload[0]["amount"], 123.45)
         self.assertEqual(payload[0]["description"], "Imp. Serv 10%")
 
+    def test_get_other_charges_payload_uses_native_tip_amount_when_tip_line_not_present(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "tip_amount": 15.0,
+            }
+        )
+        with patch.object(type(order), "_cr_get_service_charge_percent", lambda self: 10.0):
+            payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertEqual(payload[0]["amount"], 15.0)
+        self.assertEqual(payload[0]["percent"], 10.0)
+
     def test_build_payload_maps_tip_line_to_other_charges_and_excludes_detail_line(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
