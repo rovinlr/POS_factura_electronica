@@ -133,19 +133,39 @@ patch(PaymentScreen.prototype, {
         );
     },
 
+    getCurrentTipAmount(order = null) {
+        const activeOrder = order || this.currentOrder || this.pos?.get_order?.();
+        if (!activeOrder) return 0;
+        return toNumber(
+            activeOrder?.get_tip?.() ??
+                activeOrder?.getTip?.() ??
+                activeOrder?.tip_amount ??
+                activeOrder?.tip ??
+                0,
+            0
+        );
+    },
+
     async addTipProductCompat(order, tipProduct, options) {
         const failures = [];
         const baselineTipLineCount = this.getTipLines(order).length;
+        const expectedAmount = toNumber(options?.price, 0);
+        const baselineTipAmount = this.getCurrentTipAmount(order);
 
-        const lineWasAdded = () => this.getTipLines(order).length > baselineTipLineCount;
+        const tipWasApplied = () =>
+            this.getTipLines(order).length > baselineTipLineCount ||
+            amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount) ||
+            (!amountsAreEquivalent(baselineTipAmount, expectedAmount) &&
+                this.getCurrentTipAmount(order) > 0 &&
+                amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount));
 
         const tryCall = async (label, fn) => {
             try {
                 await fn();
-                if (lineWasAdded()) {
+                if (tipWasApplied()) {
                     return true;
                 }
-                failures.push(_t("%s no agregó ninguna línea.", label));
+                failures.push(_t("%s no agregó la propina esperada.", label));
                 return false;
             } catch (error) {
                 failures.push(`${label}: ${error?.message || error}`);
@@ -168,9 +188,17 @@ patch(PaymentScreen.prototype, {
                 return;
             }
         }
+        if (order?.addProduct) {
+            if (await tryCall("order.addProduct(product, options)", async () => order.addProduct(tipProduct, options))) {
+                return;
+            }
+        }
 
         throw new Error(
-            _t("No se pudo agregar la línea de propina. Detalle técnico: %s", failures.join(" | "))
+            _t(
+                "No se pudo agregar la línea de propina. Detalle técnico: %s",
+                failures.length ? failures.join(" | ") : _t("No existe un método compatible para agregar propina en esta versión de POS.")
+            )
         );
     },
 
@@ -258,6 +286,9 @@ patch(PaymentScreen.prototype, {
         if (!order) return false;
         const expectedAmount = this.getExpectedServiceAmount(order);
         if (expectedAmount <= 0) return false;
+        if (amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount)) {
+            return true;
+        }
         return this.getTipLines(order).some((line) =>
             amountsAreEquivalent(line?.get_unit_price?.() ?? line?.getUnitPrice?.() ?? 0, expectedAmount)
         );
@@ -350,6 +381,12 @@ patch(PaymentScreen.prototype, {
     },
 
     async applyServiceChargeLine(order, tipProduct, expectedAmount) {
+        if (order?.set_tip) {
+            order.set_tip(0);
+        } else if (order?.setTip) {
+            order.setTip(0);
+        }
+
         const tipLines = this.getTipLines(order);
         for (const line of [...tipLines]) {
             order.removeOrderline?.(line);
@@ -361,6 +398,9 @@ patch(PaymentScreen.prototype, {
         });
 
         const newTipLines = this.getTipLines(order);
+        if (!newTipLines.length && amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount)) {
+            return;
+        }
         if (!newTipLines.length) {
             throw new Error(
                 _t(
