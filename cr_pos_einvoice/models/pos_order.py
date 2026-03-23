@@ -3343,7 +3343,7 @@ class PosOrder(models.Model):
         if not move:
             return False, False
 
-        supported_types = {"char", "text", "html", "json", "serialized"}
+        supported_types = {"char", "text", "html", "json", "serialized", "one2many", "many2many"}
         preferred_names = (
             "fp_other_charges",
             "other_charges",
@@ -3385,9 +3385,9 @@ class PosOrder(models.Model):
             self._logger.info("No se encontró campo compatible de OtrosCargos en account.move para orden POS %s.", self.id)
             return False
 
-        value = other_charges
-        if field.type in ("char", "text", "html"):
-            value = json.dumps(other_charges, ensure_ascii=False)
+        value = self._cr_prepare_other_charges_for_move_field(field, other_charges)
+        if value in (False, None):
+            return False
 
         try:
             move[field_name] = value
@@ -3399,6 +3399,53 @@ class PosOrder(models.Model):
                 self.id,
             )
             return False
+
+    def _cr_prepare_other_charges_for_move_field(self, field, other_charges):
+        """Normalize payload according to target account.move field type."""
+        if not field or not other_charges:
+            return False
+
+        if field.type in ("char", "text", "html"):
+            return json.dumps(other_charges, ensure_ascii=False)
+        if field.type in ("json", "serialized"):
+            return other_charges
+        if field.type not in ("one2many", "many2many"):
+            return False
+
+        relation_model = self.env[field.comodel_name]
+        model_fields = relation_model._fields
+
+        def _pick_key(candidates):
+            return next((key for key in candidates if key in model_fields), False)
+
+        mapping = {
+            _pick_key(("type", "charge_type", "tipo")): "type",
+            _pick_key(("code", "codigo", "charge_code")): "code",
+            _pick_key(("amount", "monto", "importe")): "amount",
+            _pick_key(("currency", "currency_code", "moneda")): "currency",
+            _pick_key(("description", "detail", "detalle", "name")): "description",
+            _pick_key(("percent", "percentage", "porcentaje")): "percent",
+        }
+        marker_field = _pick_key(("fp_is_other_charge_line", "cr_is_other_charge_line", "is_other_charge_line"))
+        if marker_field:
+            mapping[marker_field] = "fp_is_other_charge_line"
+
+        commands = []
+        for charge in other_charges:
+            vals = {}
+            for target_field, source_key in mapping.items():
+                if not target_field:
+                    continue
+                value = charge.get(source_key)
+                if target_field in ("amount", "percent") and value not in (False, None, ""):
+                    try:
+                        value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                vals[target_field] = value
+            if vals:
+                commands.append((0, 0, vals))
+        return commands
 
     def _cr_build_virtual_move(self, *, document_type, consecutivo, clave):
         """Build a non-persisted account.move that reuses l10n_cr_einvoice XML generator for POS data."""
