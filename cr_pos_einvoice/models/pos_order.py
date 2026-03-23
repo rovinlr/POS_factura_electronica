@@ -2150,7 +2150,49 @@ class PosOrder(models.Model):
         if explicit_charges:
             return explicit_charges
         tip_charge = self._cr_build_service_charge_from_tip_lines()
-        return [tip_charge] if tip_charge else []
+        if tip_charge:
+            return [tip_charge]
+        declared_amount = self._cr_get_declared_other_charge_amount()
+        if declared_amount <= 0:
+            return []
+        percent = round(self._cr_get_service_charge_percent(), 5)
+        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
+        return [
+            {
+                "type": "01",
+                "code": "06",
+                "amount": round(declared_amount, 5),
+                "currency": str((self.currency_id.name or self.company_id.currency_id.name or "CRC")),
+                "description": f"Imp. Serv {percent_display}%",
+                "percent": percent,
+                "fp_is_other_charge_line": True,
+            }
+        ]
+
+    def _cr_get_declared_other_charge_amount(self):
+        """Read FE service/other-charge amount from compatible amount fields.
+
+        Some deployments expose the service amount directly in a dedicated field
+        (`cr_other_charge_amount`) instead of sending the full `other_charges`
+        JSON payload from POS. This fallback keeps XML generation compatible by
+        materializing OtrosCargos code 06 deterministically.
+        """
+        self.ensure_one()
+        for field_name in (
+            "cr_other_charge_amount",
+            "other_charge_amount",
+            "fp_other_charge_amount",
+            "l10n_cr_other_charge_amount",
+        ):
+            if field_name not in self._fields:
+                continue
+            try:
+                amount = float(self[field_name] or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                return amount
+        return 0.0
 
     def _cr_get_tip_product(self):
         self.ensure_one()

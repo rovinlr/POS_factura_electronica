@@ -1469,6 +1469,32 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(charges[0]["amount"], 500.0)
         self.assertEqual(charges[0]["percent"], 10)
 
+    def test_get_other_charges_payload_falls_back_to_declared_amount_field(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        with patch.object(type(order), "_cr_get_declared_other_charge_amount", lambda self: 123.45), patch.object(
+            type(order), "_cr_get_service_charge_percent", lambda self: 10.0
+        ):
+            payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertEqual(payload[0]["amount"], 123.45)
+        self.assertEqual(payload[0]["description"], "Imp. Serv 10%")
+
     def test_build_payload_maps_tip_line_to_other_charges_and_excludes_detail_line(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
