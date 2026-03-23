@@ -23,7 +23,6 @@
             "cr_pos_einvoice/static/src/js/pos_sync_einvoice_patch.js",
             "cr_pos_einvoice/static/src/js/receipt_capture_patch.js",
             "cr_pos_einvoice/static/src/xml/cr_pos_receipt.xml",
-            "cr_pos_einvoice/static/src/xml/service_charge_button.xml",
             "cr_pos_einvoice/static/src/scss/cr_pos_receipt.scss",
         ],
     },

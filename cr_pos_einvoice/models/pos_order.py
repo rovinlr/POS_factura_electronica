@@ -1763,6 +1763,7 @@ class PosOrder(models.Model):
     @api.model
     def _order_fields(self, ui_order):
         fields_vals = super()._order_fields(ui_order)
+        self._cr_mark_other_charge_line_commands(fields_vals)
         charges = self._cr_extract_other_charges_from_ui(ui_order)
         if charges:
             fields_vals["cr_other_charges_json"] = json.dumps(charges)
@@ -1781,6 +1782,20 @@ class PosOrder(models.Model):
                 merged_reference.setdefault("cr_fe_reference_reason", _("Devolución de mercadería"))
             fields_vals.update(merged_reference)
 
+        return fields_vals
+
+    @api.model
+    def _order_line_fields(self, line, session_id=None):
+        try:
+            fields_vals = super()._order_line_fields(line, session_id=session_id)
+        except TypeError:
+            fields_vals = super()._order_line_fields(line)
+
+        if (
+            "fp_is_other_charge_line" in self.env["pos.order.line"]._fields
+            and self._cr_is_other_charge_line_payload(line[2] if isinstance(line, (list, tuple)) and len(line) > 2 else {})
+        ):
+            fields_vals["fp_is_other_charge_line"] = True
         return fields_vals
 
     @api.model
@@ -1835,6 +1850,9 @@ class PosOrder(models.Model):
             normalized = self._cr_normalize_other_charges(candidate, subtotal=subtotal)
             if normalized:
                 return normalized
+        tip_line_charge = self._cr_extract_other_charge_from_ui_lines(payload, subtotal=subtotal)
+        if tip_line_charge:
+            return [tip_line_charge]
         service_flag = payload.get("service_charge_10") or payload.get("service_charge")
         if isinstance(service_flag, str):
             service_flag = service_flag.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
@@ -1842,6 +1860,101 @@ class PosOrder(models.Model):
         if computed_service_charge:
             return [computed_service_charge]
         return []
+
+    @api.model
+    def _cr_mark_other_charge_line_commands(self, order_vals):
+        """Mark line commands so l10n_cr_einvoice can consume fp_is_other_charge_line."""
+        if (
+            not isinstance(order_vals, dict)
+            or "fp_is_other_charge_line" not in self.env["pos.order.line"]._fields
+            or not isinstance(order_vals.get("lines"), list)
+        ):
+            return
+        for command in order_vals["lines"]:
+            if not isinstance(command, (list, tuple)) or len(command) < 3 or not isinstance(command[2], dict):
+                continue
+            if self._cr_is_other_charge_line_payload(command[2]):
+                command[2]["fp_is_other_charge_line"] = True
+
+    @api.model
+    def _cr_extract_other_charge_from_ui_lines(self, payload, subtotal=0.0):
+        """Build OtrosCargos from UI line-level marker fp_is_other_charge_line/is_tip_line."""
+        line_commands = payload.get("lines")
+        if not isinstance(line_commands, list):
+            return {}
+
+        total_amount = 0.0
+        for command in line_commands:
+            if not isinstance(command, (list, tuple)) or len(command) < 3 or not isinstance(command[2], dict):
+                continue
+            line_vals = command[2]
+            if not self._cr_is_other_charge_line_payload(line_vals):
+                continue
+            line_amount = self._cr_get_other_charge_line_amount(line_vals)
+            if line_amount > 0:
+                total_amount += line_amount
+
+        if total_amount <= 0:
+            return {}
+
+        base_subtotal = max(float(subtotal or 0.0) - total_amount, 0.0)
+        percent = round((total_amount / base_subtotal) * 100, 5) if base_subtotal > 0 else 10.0
+        return {
+            "type": "01",
+            "code": "06",
+            "amount": round(total_amount, 5),
+            "currency": str(payload.get("currency") or "CRC"),
+            "description": f"Imp. Serv {percent:.5f}".rstrip("0").rstrip(".") + "%",
+            "percent": percent,
+            "fp_is_other_charge_line": True,
+        }
+
+    @api.model
+    def _cr_get_other_charge_line_amount(self, line_vals):
+        subtotal_candidates = (
+            line_vals.get("price_subtotal"),
+            line_vals.get("subtotal"),
+            line_vals.get("price_subtotal_incl"),
+        )
+        for candidate in subtotal_candidates:
+            try:
+                amount = float(candidate)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                return amount
+        try:
+            qty = float(line_vals.get("qty", 0.0))
+            price_unit = float(line_vals.get("price_unit", 0.0))
+            discount = float(line_vals.get("discount", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+        if qty <= 0 or price_unit <= 0:
+            return 0.0
+        discount = min(max(discount, 0.0), 100.0)
+        return round((qty * price_unit) * (1 - (discount / 100.0)), 5)
+
+    @api.model
+    def _cr_is_other_charge_line_payload(self, line_vals):
+        if not isinstance(line_vals, dict):
+            return False
+        for marker in ("fp_is_other_charge_line", "is_tip_line", "is_tip", "cr_is_tip_line"):
+            value = line_vals.get(marker)
+            if isinstance(value, str):
+                value = value.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
+            if value:
+                return True
+        product_id = line_vals.get("product_id")
+        if isinstance(product_id, (list, tuple)):
+            product_id = product_id[0] if product_id else False
+        try:
+            product_id = int(product_id)
+        except (TypeError, ValueError):
+            return False
+        if product_id <= 0:
+            return False
+        product = self.env["product.product"].browse(product_id).exists()
+        return bool(product and self._cr_is_other_charge_product(product))
 
     @api.model
     def _cr_extract_subtotal_from_ui_payload(self, payload):
@@ -2019,6 +2132,7 @@ class PosOrder(models.Model):
                     "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
                     "description": str(charge.get("description") or charge.get("detalle") or "Impuesto de servicio 10%"),
                     "percent": charge.get("percent", charge.get("porcentaje")) or 10,
+                    "fp_is_other_charge_line": bool(charge.get("fp_is_other_charge_line")),
                 }
             )
         return normalized
@@ -2036,10 +2150,33 @@ class PosOrder(models.Model):
         config = self.config_id or self.session_id.config_id
         if not config:
             return self.env["product.product"]
-        for field_name in ("pos_tip_product_id", "tip_product_id"):
+        for field_name in ("cr_tip_product_id", "pos_tip_product_id", "tip_product_id"):
             if field_name in config._fields and config[field_name]:
                 return config[field_name]
         return self.env["product.product"]
+
+    def _cr_is_other_charge_product(self, product):
+        """Detect products flagged as Otros Cargos in compatible FE modules."""
+        if not product:
+            return False
+        product_tmpl = product.product_tmpl_id
+        candidate_markers = (
+            "is_other_charge",
+            "is_other_charges",
+            "is_otros_cargos",
+            "is_otro_cargo",
+            "l10n_cr_is_other_charge",
+            "l10n_cr_other_charge",
+            "fp_is_other_charge",
+            "fe_is_other_charge",
+            "cr_is_other_charge",
+        )
+        for marker in candidate_markers:
+            if marker in product._fields and product[marker]:
+                return True
+            if product_tmpl and marker in product_tmpl._fields and product_tmpl[marker]:
+                return True
+        return False
 
     def _cr_is_tip_line(self, line, tip_product=False):
         """Centralized predicate to detect native/custom POS tip lines safely."""
@@ -2053,6 +2190,10 @@ class PosOrder(models.Model):
         for marker in ("is_tip", "is_tip_line", "cr_is_tip_line"):
             if marker in line._fields and line[marker]:
                 return True
+        if "fp_is_other_charge_line" in line._fields and line.fp_is_other_charge_line:
+            return True
+        if self._cr_is_other_charge_product(line.product_id):
+            return True
         return False
 
     def _cr_get_tip_line_ids(self):
@@ -2089,6 +2230,7 @@ class PosOrder(models.Model):
             "currency": str(self.currency_id.name or "CRC"),
             "description": f"Imp. Serv {percent_display}%",
             "percent": percent,
+            "fp_is_other_charge_line": True,
         }
 
     def action_pos_order_paid(self):
