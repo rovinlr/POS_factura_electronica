@@ -315,6 +315,40 @@ class TestPosEInvoice(TransactionCase):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
         self.assertTrue(order._cr_is_other_charge_line_payload({"cr_is_other_charge_line": True}))
 
+    def test_pos_order_line_other_charge_flag_autofills_from_product_onchange(self):
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Producto Otros Cargos",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 10.0,
+                "cr_is_other_charge_line": True,
+            }
+        )
+        line = self.env["pos.order.line"].new({"product_id": product.id})
+
+        line._onchange_cr_other_charge_line_from_product()
+
+        self.assertTrue(line.cr_is_other_charge_line)
+
+    def test_pos_order_line_flag_helper_sets_marker_from_product(self):
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Producto Otros Cargos Helper",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 5.0,
+                "cr_is_other_charge_line": True,
+            }
+        )
+        vals = {"product_id": product.id}
+
+        self.env["pos.order.line"]._cr_apply_other_charge_flag_from_product(vals)
+
+        self.assertTrue(vals["cr_is_other_charge_line"])
+
     def test_extract_other_charge_from_ui_lines_uses_configured_percent(self):
         config = self.env["pos.config"].create(
             {
