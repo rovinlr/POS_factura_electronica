@@ -2019,7 +2019,56 @@ class PosOrder(models.Model):
 
     def _cr_get_other_charges_payload(self):
         self.ensure_one()
-        return self._cr_normalize_other_charges(self.cr_other_charges_json)
+        explicit_charges = self._cr_normalize_other_charges(self.cr_other_charges_json)
+        if explicit_charges:
+            return explicit_charges
+        tip_charge = self._cr_build_service_charge_from_tip_lines()
+        return [tip_charge] if tip_charge else []
+
+    def _cr_get_tip_product(self):
+        self.ensure_one()
+        config = self.config_id or self.session_id.config_id
+        if not config or "tip_product_id" not in config._fields:
+            return self.env["product.product"]
+        return config.tip_product_id
+
+    def _cr_get_tip_line_ids(self):
+        self.ensure_one()
+        tip_product = self._cr_get_tip_product()
+        if not tip_product:
+            return set()
+        return {line.id for line in self.lines if line.product_id == tip_product}
+
+    def _cr_build_service_charge_from_tip_lines(self):
+        """Derive FE OtrosCargos code 06 from native Odoo POS tip lines.
+
+        This keeps native POS tip UX (including the Propina button) while sending
+        the service amount as `OtrosCargos` instead of `DetalleServicio`.
+        """
+        self.ensure_one()
+        tip_line_ids = self._cr_get_tip_line_ids()
+        if not tip_line_ids:
+            return {}
+
+        tip_amount = sum(line.price_subtotal or 0.0 for line in self.lines if line.id in tip_line_ids)
+        if tip_amount <= 0:
+            return {}
+
+        base_subtotal = sum(
+            line.price_subtotal or 0.0
+            for line in self.lines
+            if line.id not in tip_line_ids and (line.price_subtotal or 0.0) > 0
+        )
+        percent = round((tip_amount / base_subtotal) * 100, 5) if base_subtotal > 0 else 10.0
+        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
+        return {
+            "type": "01",
+            "code": "06",
+            "amount": round(tip_amount, 5),
+            "currency": str(self.currency_id.name or "CRC"),
+            "description": f"Imp. Serv {percent_display}%",
+            "percent": percent,
+        }
 
     def action_pos_order_paid(self):
         """Trigger FE flow when the order is validated from backend POS forms.
@@ -2728,8 +2777,13 @@ class PosOrder(models.Model):
 
     def _cr_build_pos_payload(self, consecutivo, clave, document_type):
         self.ensure_one()
+        tip_line_ids = self._cr_get_tip_line_ids()
         lines = []
         for line in self.lines:
+            if line.id in tip_line_ids:
+                # FE CR v4.4: native tip product line must be represented in
+                # `OtrosCargos` (code 06), not in `DetalleServicio`.
+                continue
             taxes = line.tax_ids_after_fiscal_position.compute_all(
                 line.price_unit,
                 currency=self.pricelist_id.currency_id,
