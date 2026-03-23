@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from odoo import fields
 from odoo.exceptions import UserError
@@ -133,6 +134,50 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(date_from_rule[2], "2026-03-21 06:00:00")
         self.assertEqual(date_to_rule[2], "2026-03-22 05:59:59")
+
+    def test_report_wizard_totals_split_other_charges_from_exempt(self):
+        wizard = self.env["pos.order.fe.report.wizard"].create(
+            {
+                "date_from": "2026-03-21",
+                "date_to": "2026-03-21",
+                "output_format": "pdf",
+            }
+        )
+        orders = [
+            SimpleNamespace(
+                cr_fe_document_type="te",
+                amount_total=115.0,
+                cr_exempt_amount=10.0,
+                cr_other_charges_amount=3.0,
+                cr_nonsubject_amount=1.0,
+                cr_exonerated_amount=2.0,
+                cr_taxable_amount_1=11.0,
+                cr_taxable_amount_2=12.0,
+                cr_taxable_amount_4=13.0,
+                cr_taxable_amount_13=14.0,
+                amount_tax=15.0,
+            ),
+            SimpleNamespace(
+                cr_fe_document_type="nc",
+                amount_total=-57.5,
+                cr_exempt_amount=4.0,
+                cr_other_charges_amount=1.0,
+                cr_nonsubject_amount=0.5,
+                cr_exonerated_amount=1.0,
+                cr_taxable_amount_1=5.5,
+                cr_taxable_amount_2=6.0,
+                cr_taxable_amount_4=6.5,
+                cr_taxable_amount_13=7.0,
+                amount_tax=8.0,
+            ),
+        ]
+
+        totals = wizard._get_report_totals(orders)
+
+        self.assertAlmostEqual(totals["exempt"], 4.0)
+        self.assertAlmostEqual(totals["other_charges"], 2.0)
+        self.assertAlmostEqual(totals["tax"], 7.0)
+        self.assertAlmostEqual(totals["total"], 57.5)
 
     def test_sync_last_consecutivo_in_einvoice_config_uses_service_method_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
