@@ -49,6 +49,12 @@ const resolveMany2oneId = (value) => {
 
 const amountsAreEquivalent = (left, right) => Math.abs(toNumber(left) - toNumber(right)) < EPSILON;
 
+const getOrderTotalWithTax = (order) =>
+    toNumber(order?.get_total_with_tax?.() ?? order?.getTotalWithTax?.(), 0);
+
+const getOrderTotalWithoutTax = (order) =>
+    toNumber(order?.get_total_without_tax?.() ?? order?.getTotalWithoutTax?.(), 0);
+
 const getLineSubtotalWithoutTax = (line) => {
     const subtotalFromMethod = toNumber(
         line?.get_price_without_tax?.() ?? line?.getPriceWithoutTax?.(),
@@ -139,7 +145,10 @@ patch(PaymentScreen.prototype, {
         return toNumber(
             activeOrder?.get_tip?.() ??
                 activeOrder?.getTip?.() ??
+                activeOrder?.get_tip_amount?.() ??
+                activeOrder?.getTipAmount?.() ??
                 activeOrder?.tip_amount ??
+                activeOrder?.tipAmount ??
                 activeOrder?.tip ??
                 0,
             0
@@ -151,10 +160,29 @@ patch(PaymentScreen.prototype, {
         const baselineTipLineCount = this.getTipLines(order).length;
         const expectedAmount = toNumber(options?.price, 0);
         const baselineTipAmount = this.getCurrentTipAmount(order);
+        const baselineTotalWithTax = getOrderTotalWithTax(order);
+        const baselineTotalWithoutTax = getOrderTotalWithoutTax(order);
+
+        const isOrderTotalAdjusted = () => {
+            const expectedDelta = Math.max(0, expectedAmount - Math.max(0, baselineTipAmount));
+            if (expectedDelta <= 0) {
+                return false;
+            }
+            const currentWithTaxDelta = getOrderTotalWithTax(order) - baselineTotalWithTax;
+            if (amountsAreEquivalent(currentWithTaxDelta, expectedDelta) || currentWithTaxDelta > expectedDelta - EPSILON) {
+                return true;
+            }
+            const currentWithoutTaxDelta = getOrderTotalWithoutTax(order) - baselineTotalWithoutTax;
+            return (
+                amountsAreEquivalent(currentWithoutTaxDelta, expectedDelta) ||
+                currentWithoutTaxDelta > expectedDelta - EPSILON
+            );
+        };
 
         const tipWasApplied = () =>
             this.getTipLines(order).length > baselineTipLineCount ||
             amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount) ||
+            isOrderTotalAdjusted() ||
             (!amountsAreEquivalent(baselineTipAmount, expectedAmount) &&
                 this.getCurrentTipAmount(order) > 0 &&
                 amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount));
@@ -190,6 +218,16 @@ patch(PaymentScreen.prototype, {
         }
         if (order?.addProduct) {
             if (await tryCall("order.addProduct(product, options)", async () => order.addProduct(tipProduct, options))) {
+                return;
+            }
+        }
+        if (this?.addTip) {
+            if (await tryCall("PaymentScreen.addTip(amount)", async () => this.addTip(expectedAmount))) {
+                return;
+            }
+        }
+        if (this?.setTip) {
+            if (await tryCall("PaymentScreen.setTip(amount)", async () => this.setTip(expectedAmount))) {
                 return;
             }
         }
