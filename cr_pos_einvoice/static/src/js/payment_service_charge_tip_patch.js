@@ -221,21 +221,14 @@ patch(PaymentScreen.prototype, {
                 return;
             }
         }
-        if (this?.addTip) {
-            if (await tryCall("PaymentScreen.addTip(amount)", async () => this.addTip(expectedAmount))) {
-                return;
-            }
-        }
-        if (this?.setTip) {
-            if (await tryCall("PaymentScreen.setTip(amount)", async () => this.setTip(expectedAmount))) {
-                return;
-            }
-        }
-
         throw new Error(
             _t(
                 "No se pudo agregar la línea de propina. Detalle técnico: %s",
-                failures.length ? failures.join(" | ") : _t("No existe un método compatible para agregar propina en esta versión de POS.")
+                failures.length
+                    ? failures.join(" | ")
+                    : _t(
+                          "No existe un método compatible para agregar propina en esta versión de POS sin abrir el popup manual."
+                      )
             )
         );
     },
