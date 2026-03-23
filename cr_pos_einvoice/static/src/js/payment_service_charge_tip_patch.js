@@ -2,10 +2,9 @@
 
 import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
-import { useService } from "@web/core/utils/hooks";
-import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
-import { ConfirmPopup } from "@point_of_sale/app/utils/confirm_popup/confirm_popup";
-import { NumberPopup } from "@point_of_sale/app/utils/input_popups/number_popup";
+import { AlertDialog, ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { NumberPopup } from "@point_of_sale/app/components/popups/number_popup/number_popup";
+import { ask, makeAwaitable } from "@point_of_sale/app/utils/make_awaitable_dialog";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 
 const DEFAULT_SERVICE_CHARGE_PERCENT = 10;
@@ -101,11 +100,6 @@ const getLineSubtotalWithoutTax = (line) => {
 };
 
 patch(PaymentScreen.prototype, {
-    setup() {
-        super.setup(...arguments);
-        this.popup = useService("popup");
-    },
-
     getServiceChargePercent() {
         const value = toNumber(this.pos?.config?.cr_service_charge_percent, DEFAULT_SERVICE_CHARGE_PERCENT);
         return value > 0 ? value : DEFAULT_SERVICE_CHARGE_PERCENT;
@@ -246,7 +240,7 @@ patch(PaymentScreen.prototype, {
 
     async askServiceChargeAmount(order, suggestedAmount) {
         const subtotal = this.getOrderSubtotalWithoutTaxExcludingTip(order);
-        const { confirmed, payload } = await this.popup.add(NumberPopup, {
+        const payload = await makeAwaitable(this.dialog, NumberPopup, {
             title: this.getServiceChargeLabel(),
             startingValue: String(suggestedAmount),
             confirmText: _t("Aplicar"),
@@ -255,7 +249,7 @@ patch(PaymentScreen.prototype, {
                 roundCurrency(subtotal).toFixed(2)
             ),
         });
-        if (!confirmed) return null;
+        if (payload === undefined) return null;
         const amount = roundCurrency(toNumber(payload, 0));
         return amount > 0 ? amount : null;
     },
@@ -273,7 +267,7 @@ patch(PaymentScreen.prototype, {
     async onClickServiceChargeButton() {
         const order = this.currentOrder || this.pos?.get_order?.();
         if (!order) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("No hay orden activa"),
                 body: _t("No existe una orden disponible para aplicar el cargo por servicio."),
             });
@@ -282,7 +276,7 @@ patch(PaymentScreen.prototype, {
 
         const tipProductId = this.getServiceTipProductId();
         if (!tipProductId) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("Configuración incompleta"),
                 body: _t("Configure el producto de propina en el POS para aplicar Servicio %s%%.", this.getServiceChargePercent()),
             });
@@ -291,7 +285,7 @@ patch(PaymentScreen.prototype, {
 
         const tipProduct = this.getTipProduct();
         if (!tipProduct) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("Producto no disponible"),
                 body: _t("El producto de propina configurado no está cargado en esta sesión POS."),
             });
@@ -300,7 +294,7 @@ patch(PaymentScreen.prototype, {
 
         const lines = order.get_orderlines?.() || order.getOrderlines?.() || [];
         if (!lines.length) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("Sin productos"),
                 body: _t("Agregue al menos un producto antes de aplicar Servicio %s%%.", this.getServiceChargePercent()),
             });
@@ -309,7 +303,7 @@ patch(PaymentScreen.prototype, {
 
         const suggestedAmount = this.getExpectedServiceAmount(order);
         if (suggestedAmount <= 0) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("Monto inválido"),
                 body: _t("No se pudo calcular el cargo de servicio porque el subtotal sin impuestos es cero."),
             });
@@ -331,7 +325,7 @@ patch(PaymentScreen.prototype, {
         }
 
         if (tipLines.length) {
-            const { confirmed } = await this.popup.add(ConfirmPopup, {
+            const confirmed = await ask(this.dialog, {
                 title: _t("Reemplazar propina actual"),
                 body: _t(
                     "Ya existe una propina distinta. ¿Desea reemplazarla por Servicio %s%% (monto calculado automáticamente)?",
@@ -339,7 +333,7 @@ patch(PaymentScreen.prototype, {
                 ),
                 confirmText: _t("Reemplazar"),
                 cancelText: _t("Cancelar"),
-            });
+            }, {}, ConfirmationDialog);
             if (!confirmed) {
                 return;
             }
@@ -349,7 +343,7 @@ patch(PaymentScreen.prototype, {
         try {
             await this.applyServiceChargeLine(order, tipProduct, expectedAmount);
         } catch (error) {
-            this.popup.add(ErrorPopup, {
+            this.dialog.add(AlertDialog, {
                 title: _t("No se pudo aplicar el servicio"),
                 body: error?.message || _t("Ocurrió un error inesperado al agregar la línea de propina."),
             });
