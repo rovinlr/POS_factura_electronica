@@ -12,6 +12,7 @@
         "views/hacienda_pos_menu_views.xml",
         "views/pos_config_views.xml",
         "views/pos_payment_method_views.xml",
+        "views/product_template_views.xml",
         "views/pos_order_views.xml",
         "views/pos_order_fe_report_views.xml",
         "reports/pos_order_report.xml",
