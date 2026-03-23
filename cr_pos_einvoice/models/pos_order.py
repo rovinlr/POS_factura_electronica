@@ -1906,16 +1906,12 @@ class PosOrder(models.Model):
             return {}
 
         percent = round(self._cr_get_service_charge_percent(), 5)
-        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
-        return {
-            "type": "01",
-            "code": "06",
-            "amount": round(total_amount, 5),
-            "currency": str(payload.get("currency") or "CRC"),
-            "description": f"Imp. Serv {percent_display}%",
-            "percent": percent,
-            "fp_is_other_charge_line": True,
-        }
+        return self._cr_build_other_charge_entry(
+            amount=total_amount,
+            currency=str(payload.get("currency") or "CRC"),
+            percent=percent,
+            mark_as_other_charge_line=True,
+        )
 
     @api.model
     def _cr_get_other_charge_line_amount(self, line_vals):
@@ -2002,13 +1998,58 @@ class PosOrder(models.Model):
         amount = self._cr_calculate_service_charge_amount(subtotal, percent=service_percent)
         if amount <= 0:
             return {}
+        return self._cr_build_other_charge_entry(
+            amount=amount,
+            currency="CRC",
+            percent=service_percent,
+            mark_as_other_charge_line=False,
+        )
+
+    @api.model
+    def _cr_build_other_charge_entry(self, amount, currency="CRC", percent=None, description=None, mark_as_other_charge_line=True):
+        """Build canonical/compatible OtrosCargos code 06 payload for FE CR v4.4."""
+        try:
+            normalized_amount = round(float(amount or 0.0), 5)
+        except (TypeError, ValueError):
+            normalized_amount = 0.0
+        if normalized_amount <= 0:
+            return {}
+
+        if percent in (False, None, ""):
+            percent = self._cr_get_service_charge_percent()
+        try:
+            normalized_percent = round(float(percent), 5)
+        except (TypeError, ValueError):
+            normalized_percent = 10.0
+        if normalized_percent <= 0:
+            normalized_percent = 10.0
+
+        normalized_currency = str(currency or "CRC")
+        normalized_description = str(description or f"Imp. Serv {normalized_percent:g}%")
+        line_marker = bool(mark_as_other_charge_line)
+
+        # Keep both canonical aliases so heterogeneous FE engines can map:
+        # - TipoDocumentoOC => type/tipo/tipo_documento_oc
+        # - Detalle         => description/detalle/detail
+        # - PorcentajeOC    => percent/porcentaje/porcentaje_oc
+        # - MontoCargo      => amount/monto/monto_cargo
         return {
-            "type": "01",
+            "type": "06",
+            "tipo": "06",
+            "tipo_documento_oc": "06",
             "code": "06",
-            "amount": amount,
-            "currency": "CRC",
-            "description": f"Imp. Serv {service_percent:g}%",
-            "percent": service_percent,
+            "amount": normalized_amount,
+            "monto": normalized_amount,
+            "monto_cargo": normalized_amount,
+            "currency": normalized_currency,
+            "description": normalized_description,
+            "detalle": normalized_description,
+            "detail": normalized_description,
+            "percent": normalized_percent,
+            "porcentaje": normalized_percent,
+            "porcentaje_oc": normalized_percent,
+            "fp_is_other_charge_line": line_marker,
+            "cr_is_other_charge_line": line_marker,
         }
 
     @api.model
@@ -2162,16 +2203,13 @@ class PosOrder(models.Model):
                 normalized_percent = float(service_charge.get("percent") or 10)
             is_other_charge_line = bool(charge.get("fp_is_other_charge_line") or charge.get("cr_is_other_charge_line"))
             normalized.append(
-                {
-                    "type": str(charge.get("type") or charge.get("tipo") or charge.get("charge_type") or "01"),
-                    "code": "06",
-                    "amount": round(amount, 5),
-                    "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
-                    "description": str(charge.get("description") or charge.get("detalle") or service_charge.get("description") or "Imp. Serv 10%"),
-                    "percent": normalized_percent,
-                    "fp_is_other_charge_line": is_other_charge_line,
-                    "cr_is_other_charge_line": is_other_charge_line,
-                }
+                self._cr_build_other_charge_entry(
+                    amount=amount,
+                    currency=str(charge.get("currency") or charge.get("moneda") or "CRC"),
+                    percent=normalized_percent,
+                    description=str(charge.get("description") or charge.get("detalle") or service_charge.get("description") or "Imp. Serv 10%"),
+                    mark_as_other_charge_line=is_other_charge_line,
+                )
             )
         return normalized
 
@@ -2205,17 +2243,13 @@ class PosOrder(models.Model):
         if declared_amount <= 0:
             return []
         percent = round(self._cr_get_service_charge_percent(), 5)
-        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
         return [
-            {
-                "type": "01",
-                "code": "06",
-                "amount": round(declared_amount, 5),
-                "currency": str((self.currency_id.name or self.company_id.currency_id.name or "CRC")),
-                "description": f"Imp. Serv {percent_display}%",
-                "percent": percent,
-                "fp_is_other_charge_line": True,
-            }
+            self._cr_build_other_charge_entry(
+                amount=declared_amount,
+                currency=str((self.currency_id.name or self.company_id.currency_id.name or "CRC")),
+                percent=percent,
+                mark_as_other_charge_line=True,
+            )
         ]
 
     def _cr_get_declared_other_charge_amount(self):
@@ -2402,16 +2436,12 @@ class PosOrder(models.Model):
             if line.id not in tip_line_ids and (line.price_subtotal or 0.0) > 0
         )
         percent = round(self._cr_get_service_charge_percent(), 5)
-        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
-        return {
-            "type": "01",
-            "code": "06",
-            "amount": round(tip_amount, 5),
-            "currency": str(self.currency_id.name or "CRC"),
-            "description": f"Imp. Serv {percent_display}%",
-            "percent": percent,
-            "fp_is_other_charge_line": True,
-        }
+        return self._cr_build_other_charge_entry(
+            amount=tip_amount,
+            currency=str(self.currency_id.name or "CRC"),
+            percent=percent,
+            mark_as_other_charge_line=True,
+        )
 
     def _cr_build_service_charge_from_marked_lines(self):
         """Build OtrosCargos from persisted line markers/product flags only."""
@@ -2425,16 +2455,12 @@ class PosOrder(models.Model):
             return {}
 
         percent = round(self._cr_get_service_charge_percent(), 5)
-        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
-        return {
-            "type": "01",
-            "code": "06",
-            "amount": round(tip_amount, 5),
-            "currency": str(self.currency_id.name or "CRC"),
-            "description": f"Imp. Serv {percent_display}%",
-            "percent": percent,
-            "fp_is_other_charge_line": True,
-        }
+        return self._cr_build_other_charge_entry(
+            amount=tip_amount,
+            currency=str(self.currency_id.name or "CRC"),
+            percent=percent,
+            mark_as_other_charge_line=True,
+        )
 
     def action_pos_order_paid(self):
         """Trigger FE flow when the order is validated from backend POS forms.
@@ -3561,12 +3587,12 @@ class PosOrder(models.Model):
             return next((key for key in candidates if key in model_fields), False)
 
         mapping = {
-            _pick_key(("type", "charge_type", "tipo")): "type",
+            _pick_key(("type", "charge_type", "tipo", "tipo_documento_oc")): "type",
             _pick_key(("code", "codigo", "charge_code")): "code",
-            _pick_key(("amount", "monto", "importe")): "amount",
+            _pick_key(("amount", "monto", "importe", "monto_cargo")): "amount",
             _pick_key(("currency", "currency_code", "moneda")): "currency",
             _pick_key(("description", "detail", "detalle", "name")): "description",
-            _pick_key(("percent", "percentage", "porcentaje")): "percent",
+            _pick_key(("percent", "percentage", "porcentaje", "porcentaje_oc")): "percent",
         }
         marker_field = _pick_key(("fp_is_other_charge_line", "cr_is_other_charge_line", "is_other_charge_line"))
         if marker_field:
