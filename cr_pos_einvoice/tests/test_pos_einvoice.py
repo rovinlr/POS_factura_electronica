@@ -1542,6 +1542,32 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(injected[0]["percent"], 10.0)
         self.assertEqual(injected[0]["amount"], 15.0)
 
+    def test_prepare_other_charges_for_x2many_field_returns_create_commands(self):
+        order = self.env["pos.order"]
+
+        class DummyField:
+            type = "one2many"
+            comodel_name = "account.move.line"
+
+        commands = order._cr_prepare_other_charges_for_move_field(
+            DummyField(),
+            [
+                {
+                    "code": "06",
+                    "description": "Imp. Serv 10%",
+                    "amount": 15.0,
+                    "percent": 10.0,
+                    "fp_is_other_charge_line": True,
+                }
+            ],
+        )
+
+        self.assertTrue(commands)
+        self.assertEqual(commands[0][0], 0)
+        self.assertEqual(commands[0][1], 0)
+        self.assertIn("name", commands[0][2])
+        self.assertEqual(commands[0][2]["name"], "Imp. Serv 10%")
+
     def test_sync_other_charges_from_tip_lines_persists_json_for_reporting(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
