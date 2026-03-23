@@ -5,11 +5,13 @@
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_only_form_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='point_of_sale']//group[1]" position="inside">
-                <div class="o_row">
-                    <field name="cr_is_other_charge_line" class="oe_inline" nolabel="1"/>
-                    <label for="cr_is_other_charge_line" string="Otros cargos FE" class="oe_inline"/>
-                </div>
+            <!--
+            Place the FE flag in General Information to keep UX consistent and
+            avoid positional/header-level insertion that can surface the field
+            outside the intended tab in newer Odoo layouts.
+            -->
+            <xpath expr="//page[@name='general_information']//field[@name='categ_id']" position="after">
+                <field name="cr_is_other_charge_line"/>
             </xpath>
         </field>
     </record>
