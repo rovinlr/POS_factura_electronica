@@ -236,6 +236,9 @@ patch(PosOrder.prototype, {
         const data = parent.export_for_printing
             ? parent.export_for_printing.call(this, ...arguments)
             : {};
+        // Avoid duplicated customer block in printed ticket header.
+        // We render customer data in our dedicated "Datos del cliente" section.
+        data.partner = null;
         data.cr_order_date_ddmmyyyy =
             formatDateDDMMYYYY(data.date?.local) ||
             formatDateDDMMYYYY(data.date_order) ||
@@ -250,6 +253,9 @@ patch(PosOrder.prototype, {
         const data = parent.exportForPrinting
             ? parent.exportForPrinting.call(this, ...arguments)
             : this.export_for_printing(...arguments);
+        // Avoid duplicated customer block in printed ticket header.
+        // We render customer data in our dedicated "Datos del cliente" section.
+        data.partner = null;
         data.cr_order_date_ddmmyyyy =
             formatDateDDMMYYYY(data.date?.local) ||
             formatDateDDMMYYYY(data.date_order) ||
