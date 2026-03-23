@@ -2177,6 +2177,7 @@ class PosOrder(models.Model):
             "fp_is_other_charge",
             "fe_is_other_charge",
             "cr_is_other_charge",
+            "cr_is_other_charge_line",
         )
         for marker in candidate_markers:
             if marker in product._fields and product[marker]:
