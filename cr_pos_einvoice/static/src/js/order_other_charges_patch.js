@@ -2,6 +2,7 @@
 
 import { patch } from "@web/core/utils/patch";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
+import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 
 const SERVICE_CHARGE_CODE = "06";
 const SERVICE_CHARGE_RATE = 0.1;
@@ -68,7 +69,7 @@ const normalizeCharges = (charges, subtotal = null, options = {}) => {
         const amount = Number(forceSubtotalAmount ? computed?.amount : (item.amount ?? item.monto ?? computed?.amount));
         if (!Number.isFinite(amount) || amount <= 0) continue;
         normalized.push({
-            type: String(item.type ?? item.tipo ?? item.charge_type ?? "99"),
+            type: String(item.type ?? item.tipo ?? item.charge_type ?? "01"),
             code: SERVICE_CHARGE_CODE,
             amount: roundAmount(amount),
             currency: String(item.currency ?? item.moneda ?? "CRC"),
@@ -86,13 +87,23 @@ patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(vals);
         const source = vals || {};
-        this.cr_other_charges = normalizeCharges(source.cr_other_charges ?? source.cr_other_charges_json ?? this.cr_other_charges);
+        this.cr_other_charges = normalizeCharges(
+            source.cr_other_charges ?? source.cr_other_charges_json ?? this.cr_other_charges
+        );
+    },
+
+    _crNotifyOtherChargesChanged() {
+        this.lastOrderChange = Date.now();
+        this.updateLastOrderChange?.();
+        this.trigger?.("change", this);
+        this._trigger?.("change", this);
     },
 
     setOtherCharges(charges) {
         this.assertEditable?.();
         const subtotal = getOrderSubtotal(this);
         this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: false });
+        this._crNotifyOtherChargesChanged();
     },
 
     getOtherCharges() {
@@ -132,22 +143,51 @@ patch(PosOrder.prototype, {
     },
 
     getTotalWithTax() {
-        const baseTotal = Number(super.getTotalWithTax?.(...arguments) ?? this.get_total_with_tax());
-        return roundAmount(baseTotal + this.getOtherChargesTotal());
+        if (super.getTotalWithTax) {
+            const baseTotal = Number(super.getTotalWithTax(...arguments) ?? 0);
+            return roundAmount(baseTotal + this.getOtherChargesTotal());
+        }
+        return this.get_total_with_tax(...arguments);
     },
-
 
     serializeForORM(opts = {}) {
         const data = super.serializeForORM(...arguments);
         const subtotal = getOrderSubtotal(this);
-        const charges = this.getOtherCharges();
-        if (charges.length) {
-            this.cr_other_charges = normalizeCharges(charges, subtotal, { forceSubtotalAmount: true });
-            // Multiple keys for server-side extraction (backend checks several aliases)
-            data.cr_other_charges = this.cr_other_charges;
-            data.other_charges = this.cr_other_charges;
-            data.otros_cargos = this.cr_other_charges;
-        }
+        const charges = normalizeCharges(this.cr_other_charges, subtotal, { forceSubtotalAmount: true });
+        this.cr_other_charges = charges;
+        data.cr_other_charges = charges;
+        data.other_charges = charges;
+        data.otros_cargos = charges;
+        data.service_charge_10 = charges.length > 0;
         return data;
+    },
+});
+
+patch(ControlButtons.prototype, {
+    get currentOrder() {
+        return this.pos?.get_order?.() || null;
+    },
+
+    get serviceChargeButtonLabel() {
+        return this.currentOrder?.hasServiceCharge10?.() ? "Servicio 10%: ON" : "Servicio 10%: OFF";
+    },
+
+    get serviceChargeButtonTitle() {
+        return this.currentOrder?.hasServiceCharge10?.()
+            ? "Quitar impuesto de servicio 10%"
+            : "Aplicar impuesto de servicio 10%";
+    },
+
+    get isServiceCharge10Active() {
+        return Boolean(this.currentOrder?.hasServiceCharge10?.());
+    },
+
+    onClickServiceCharge10() {
+        const order = this.currentOrder;
+        if (!order) {
+            return;
+        }
+        order.toggleServiceCharge10?.();
+        this.render();
     },
 });
