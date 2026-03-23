@@ -211,25 +211,27 @@
                             <p class="cr-ticket-line" t-if="partner_phone" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Teléfono: </span><span t-esc="partner_phone"/></p>
                             <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.email" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Correo: </span><span t-esc="o.partner_id.email"/></p>
                             <p class="cr-ticket-line" t-if="partner_address" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Dirección: </span><span t-esc="(partner_address or '').replace('\n', ' ').strip()"/></p>
+                            <div style="height:1.2mm;"></div>
                         </div>
 
                         <table class="cr-ticket-lines" aria-label="Detalle de productos" style="width:100%; border-collapse:collapse; table-layout:auto;">
                             <colgroup>
-                                <col class="desc"/>
                                 <col class="qty"/>
+                                <col class="desc"/>
                                 <col class="amt"/>
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th class="txt-left" style="text-align:left; padding-left:1mm;">Producto</th>
                                     <th class="txt-right" style="text-align:right;">Cant.</th>
-                                    <th class="txt-right" style="text-align:right;">Subtotal</th>
+                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Producto</th>
+                                    <th class="txt-right" style="text-align:right;">Importe</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="o.lines" t-as="line">
-                                    <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
                                     <td class="txt-right" style="text-align:right;"><span t-esc="line.qty"/></td>
+                                    <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
                                     <td class="txt-right" style="text-align:right; white-space:nowrap;"><span t-esc="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/></td>
                                 </tr>
                             </tbody>
@@ -238,6 +240,7 @@
                         <t t-set="other_charges_amount" t-value="o.cr_other_charges_amount or 0.0"/>
                         <t t-set="subtotal_amount" t-value="o.amount_total - o.amount_tax - other_charges_amount"/>
 
+                        <div style="height:1.2mm;"></div>
                         <table class="cr-ticket-totals" aria-label="Totales" style="width:100%; border-collapse:collapse;">
                             <tbody>
                                 <tr>
@@ -258,6 +261,7 @@
                                 </tr>
                             </tbody>
                         </table>
+                        <div style="height:1.2mm;"></div>
 
                         <div t-if="o.cr_fe_clave" class="cr-ticket-footer">
                             <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Clave: </span><span t-esc="o.cr_fe_clave"/></p>
