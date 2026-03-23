@@ -241,13 +241,12 @@ patch(PaymentScreen.prototype, {
     async askServiceChargeAmount(order, suggestedAmount) {
         const subtotal = this.getOrderSubtotalWithoutTaxExcludingTip(order);
         const payload = await makeAwaitable(this.dialog, NumberPopup, {
-            title: this.getServiceChargeLabel(),
-            startingValue: String(suggestedAmount),
-            confirmText: _t("Aplicar"),
-            body: _t(
-                "Subtotal sin impuestos: %s. Puede ajustar el monto de la propina/servicio.",
+            title: _t(
+                "%s (Subtotal sin impuestos: %s)",
+                this.getServiceChargeLabel(),
                 roundCurrency(subtotal).toFixed(2)
             ),
+            startingValue: String(suggestedAmount),
         });
         if (payload === undefined) return null;
         const amount = roundCurrency(toNumber(payload, 0));
