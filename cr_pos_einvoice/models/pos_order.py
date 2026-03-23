@@ -1669,13 +1669,11 @@ class PosOrder(models.Model):
             return order
 
         sanitized = dict(order)
-        payload = sanitized.get("data")
-        if not isinstance(payload, dict):
-            payload = {}
-            sanitized["data"] = payload
+        payload = sanitized.get("data") if isinstance(sanitized.get("data"), dict) else None
+        payload_source = payload if isinstance(payload, dict) else sanitized
 
         # Compatibility aliases from custom/legacy POS UIs.
-        # Keep these values in `data` so `_order_fields` can map them safely.
+        # Keep these values in payload_source so FE extractors can map them safely.
         aliased_payload_keys = (
             "cr_other_charges",
             "other_charges",
@@ -1684,11 +1682,18 @@ class PosOrder(models.Model):
             "service_charge",
         )
         for key in aliased_payload_keys:
-            if key in sanitized and key not in payload:
-                payload[key] = sanitized.get(key)
-            sanitized.pop(key, None)
+            if key in sanitized and key not in payload_source:
+                payload_source[key] = sanitized.get(key)
 
-        self._cr_apply_service_charge_as_tip(sanitized, payload)
+        self._cr_apply_service_charge_as_tip(sanitized, payload_source)
+        self._cr_map_ui_payload_to_order_fields(sanitized, payload_source)
+
+        # `data` is not a `pos.order` field in this deployment and can trigger:
+        # ValueError: Invalid field 'data' in 'pos.order'
+        sanitized.pop("data", None)
+        sanitized.pop("reference", None)
+        for key in aliased_payload_keys:
+            sanitized.pop(key, None)
         return sanitized
 
     @api.model
@@ -1728,6 +1733,26 @@ class PosOrder(models.Model):
         if tip_amount <= 0:
             return
         sanitized_order[tip_field] = tip_amount
+
+    @api.model
+    def _cr_map_ui_payload_to_order_fields(self, sanitized_order, payload):
+        """Map FE payload keys to real `pos.order` fields before direct create().
+
+        Some Odoo/Enterprise flows bypass `_order_fields` and call `create`
+        directly with the sanitized payload. Persist critical FE metadata here so
+        it survives those flows without leaking unknown keys to ORM.
+        """
+        if not isinstance(sanitized_order, dict) or not isinstance(payload, dict):
+            return
+
+        charges = self._cr_extract_other_charges_from_ui(payload)
+        if charges:
+            sanitized_order["cr_other_charges_json"] = json.dumps(charges)
+
+        manual_reference = self._cr_extract_manual_reference_from_ui(payload)
+        for field_name, value in manual_reference.items():
+            if field_name in self._fields and value not in (False, None, ""):
+                sanitized_order[field_name] = value
 
     @api.model
     def _order_fields(self, ui_order):
