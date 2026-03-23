@@ -1688,7 +1688,46 @@ class PosOrder(models.Model):
                 payload[key] = sanitized.get(key)
             sanitized.pop(key, None)
 
+        self._cr_apply_service_charge_as_tip(sanitized, payload)
         return sanitized
+
+    @api.model
+    def _cr_apply_service_charge_as_tip(self, sanitized_order, payload):
+        """Map custom service-charge flags to Odoo's native tip field.
+
+        Odoo 19 POS supports "Propinas" natively. When custom UI sends
+        `service_charge_10/service_charge`, we convert it to a deterministic tip
+        amount (10% del subtotal sin impuestos) if the target tip field exists.
+        """
+        if not isinstance(sanitized_order, dict) or not isinstance(payload, dict):
+            return
+
+        service_flag = payload.get("service_charge_10")
+        if service_flag in (None, False, ""):
+            service_flag = payload.get("service_charge")
+        if isinstance(service_flag, str):
+            service_flag = service_flag.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
+        if not service_flag:
+            return
+
+        # Odoo versions/modules may expose a different field name.
+        tip_field = None
+        for candidate in ("tip_amount", "amount_tip"):
+            if candidate in self._fields:
+                tip_field = candidate
+                break
+        if not tip_field:
+            return
+
+        if sanitized_order.get(tip_field) not in (None, False, ""):
+            # Respect value already computed by POS core/UI.
+            return
+
+        subtotal = self._cr_extract_subtotal_from_ui_payload(payload)
+        tip_amount = self._cr_calculate_service_charge_amount(subtotal)
+        if tip_amount <= 0:
+            return
+        sanitized_order[tip_field] = tip_amount
 
     @api.model
     def _order_fields(self, ui_order):
@@ -1799,20 +1838,27 @@ class PosOrder(models.Model):
 
     @api.model
     def _cr_build_service_charge(self, subtotal):
-        try:
-            base = float(subtotal or 0.0)
-        except (TypeError, ValueError):
-            return {}
-        if base <= 0:
+        amount = self._cr_calculate_service_charge_amount(subtotal)
+        if amount <= 0:
             return {}
         return {
             "type": "01",
             "code": "06",
-            "amount": round(base * 0.10, 5),
+            "amount": amount,
             "currency": "CRC",
             "description": "Impuesto de servicio 10%",
             "percent": 10,
         }
+
+    @api.model
+    def _cr_calculate_service_charge_amount(self, subtotal):
+        try:
+            base = float(subtotal or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        if base <= 0:
+            return 0.0
+        return round(base * 0.10, 5)
 
     @api.model
     def _cr_extract_refund_reference_from_ui(self, ui_order):
