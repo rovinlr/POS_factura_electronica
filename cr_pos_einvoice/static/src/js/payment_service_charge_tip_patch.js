@@ -14,6 +14,28 @@ const toNumber = (value, fallback = 0) => {
     return Number.isFinite(number) ? number : fallback;
 };
 
+const getAllPrices = (line) => line?.get_all_prices?.() || line?.getAllPrices?.() || null;
+
+const getQty = (line) =>
+    toNumber(
+        line?.get_quantity?.() ?? line?.getQuantity?.() ?? line?.quantity ?? line?.qty ?? 1,
+        1
+    );
+
+const getDiscount = (line) =>
+    toNumber(line?.get_discount?.() ?? line?.getDiscount?.() ?? line?.discount ?? 0, 0);
+
+const getUnitPrice = (line) =>
+    toNumber(
+        line?.get_unit_price?.() ??
+            line?.getUnitPrice?.() ??
+            line?.price_unit ??
+            line?.price ??
+            line?.unit_price ??
+            0,
+        0
+    );
+
 const roundCurrency = (value) => Math.round(toNumber(value) * 100000) / 100000;
 
 const resolveMany2oneId = (value) => {
@@ -26,17 +48,55 @@ const resolveMany2oneId = (value) => {
 
 const amountsAreEquivalent = (left, right) => Math.abs(toNumber(left) - toNumber(right)) < EPSILON;
 
-const getLineSubtotalWithoutTax = (line) =>
-    toNumber(
-        line?.get_price_without_tax?.() ??
-            line?.getPriceWithoutTax?.() ??
-            line?.price_subtotal ??
-            line?.get_display_price?.() ??
-            line?.getDisplayPrice?.() ??
-            line?.get_unit_price?.() ??
-            line?.getUnitPrice?.() ??
-            0
+const getLineSubtotalWithoutTax = (line) => {
+    const subtotalFromMethod = toNumber(
+        line?.get_price_without_tax?.() ?? line?.getPriceWithoutTax?.(),
+        NaN
     );
+    if (Number.isFinite(subtotalFromMethod)) {
+        return subtotalFromMethod;
+    }
+
+    const allPrices = getAllPrices(line);
+    if (allPrices && typeof allPrices === "object") {
+        const subtotalFromAllPrices = toNumber(
+            allPrices.priceWithoutTax ??
+                allPrices.price_without_tax ??
+                allPrices.total_without_tax ??
+                allPrices.subtotal_without_tax ??
+                allPrices.subtotalWithoutTax,
+            NaN
+        );
+        if (Number.isFinite(subtotalFromAllPrices)) {
+            return subtotalFromAllPrices;
+        }
+    }
+
+    const subtotalFromFields = toNumber(
+        line?.price_subtotal ?? line?.priceSubtotal ?? line?.subtotal,
+        NaN
+    );
+    if (Number.isFinite(subtotalFromFields)) {
+        return subtotalFromFields;
+    }
+
+    const qty = getQty(line);
+    const unitPrice = getUnitPrice(line);
+    const discount = getDiscount(line);
+    const subtotalFromFormula = unitPrice * qty * (1 - discount / 100);
+    if (Number.isFinite(subtotalFromFormula)) {
+        return subtotalFromFormula;
+    }
+
+    const subtotalFromDisplay = toNumber(
+        line?.get_display_price?.() ??
+            line?.getDisplayPrice?.() ??
+            line?.price_subtotal_incl ??
+            line?.priceSubtotalIncl,
+        NaN
+    );
+    return Number.isFinite(subtotalFromDisplay) ? subtotalFromDisplay : 0;
+};
 
 patch(PaymentScreen.prototype, {
     setup() {
@@ -100,27 +160,45 @@ patch(PaymentScreen.prototype, {
         const activeOrder = order || this.currentOrder || this.pos?.get_order?.();
         if (!activeOrder) return 0;
         const lines = activeOrder.get_orderlines?.() || activeOrder.getOrderlines?.() || [];
-        const tipProductId = this.getServiceTipProductId();
-        const subtotalFromLines = lines.reduce((acc, line) => {
-            const productId = line?.product?.id || line?.get_product?.()?.id || line?.getProduct?.()?.id;
-            if (tipProductId && productId === tipProductId) {
-                return acc;
-            }
-            return acc + getLineSubtotalWithoutTax(line);
+
+        const tipSubtotal = this.getTipLines(activeOrder).reduce((acc, line) => {
+            const lineSubtotal = getLineSubtotalWithoutTax(line);
+            return acc + (Number.isFinite(lineSubtotal) ? lineSubtotal : 0);
         }, 0);
-        if (subtotalFromLines > 0) {
-            return subtotalFromLines;
-        }
 
-        const subtotalFromOrder = toNumber(
-            activeOrder.get_total_without_tax?.() ?? activeOrder.getTotalWithoutTax?.() ?? 0
+        let subtotalBase = toNumber(
+            activeOrder.get_total_without_tax?.() ?? activeOrder.getTotalWithoutTax?.(),
+            0
         );
-        if (subtotalFromOrder <= 0) {
-            return 0;
+
+        if (subtotalBase <= 0) {
+            const totalWithTax = toNumber(
+                activeOrder.get_total_with_tax?.() ?? activeOrder.getTotalWithTax?.(),
+                NaN
+            );
+            const totalTax = toNumber(activeOrder.get_total_tax?.() ?? activeOrder.getTotalTax?.(), NaN);
+            if (Number.isFinite(totalWithTax) && Number.isFinite(totalTax) && totalWithTax > 0) {
+                subtotalBase = totalWithTax - totalTax;
+            }
         }
 
-        const tipSubtotal = this.getTipLines(activeOrder).reduce((acc, line) => acc + getLineSubtotalWithoutTax(line), 0);
-        return Math.max(0, subtotalFromOrder - tipSubtotal);
+        if (subtotalBase <= 0) {
+            const tipProductId = this.getServiceTipProductId();
+            subtotalBase = lines.reduce((acc, line) => {
+                const productId = line?.product?.id || line?.get_product?.()?.id || line?.getProduct?.()?.id;
+                if (tipProductId && productId === tipProductId) {
+                    return acc;
+                }
+                const lineSubtotal = getLineSubtotalWithoutTax(line);
+                if (!Number.isFinite(lineSubtotal)) {
+                    return acc;
+                }
+                return acc + lineSubtotal;
+            }, 0);
+            return Math.max(0, subtotalBase);
+        }
+
+        return Math.max(0, subtotalBase - tipSubtotal);
     },
 
     getExpectedServiceAmount(order = null) {
@@ -237,3 +315,12 @@ patch(PaymentScreen.prototype, {
         }
     },
 });
+
+/*
+Manual checklist (Odoo v19 + POS Restaurant):
+1) Orden con 1 producto sin impuestos especiales: subtotal sin impuestos > 0, Servicio 10% > 0, sin error.
+2) Orden con 2 productos (uno con descuento 10%): Servicio 10% sobre subtotal neto sin impuestos.
+3) Orden con impuestos: base sin impuestos = total_with_tax - total_tax cuando get_total_without_tax falla.
+4) POS Restaurant (mesa), enviar a cocina y pagar: Servicio 10% funciona sin diferencias.
+5) Orden vacía o subtotal real 0: se mantiene error de "Monto inválido" (comportamiento esperado).
+*/
