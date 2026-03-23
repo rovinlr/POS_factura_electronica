@@ -1675,7 +1675,15 @@ class PosOrder(models.Model):
             sanitized["data"] = payload
 
         # Compatibility aliases from custom/legacy POS UIs.
-        for key in ("cr_other_charges", "other_charges", "otros_cargos"):
+        # Keep these values in `data` so `_order_fields` can map them safely.
+        aliased_payload_keys = (
+            "cr_other_charges",
+            "other_charges",
+            "otros_cargos",
+            "service_charge_10",
+            "service_charge",
+        )
+        for key in aliased_payload_keys:
             if key in sanitized and key not in payload:
                 payload[key] = sanitized.get(key)
             sanitized.pop(key, None)
