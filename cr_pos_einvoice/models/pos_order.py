@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from datetime import timedelta, datetime, date, time
 from lxml import etree
@@ -2199,7 +2200,58 @@ class PosOrder(models.Model):
     def _cr_get_tip_line_ids(self):
         self.ensure_one()
         tip_product = self._cr_get_tip_product()
-        return {line.id for line in self.lines if self._cr_is_tip_line(line, tip_product=tip_product)}
+        tip_line_ids = {line.id for line in self.lines if self._cr_is_tip_line(line, tip_product=tip_product)}
+        if tip_line_ids:
+            return tip_line_ids
+        return self._cr_guess_tip_line_ids()
+
+    def _cr_get_service_charge_percent(self):
+        self.ensure_one()
+        config = self.config_id or self.session_id.config_id
+        percent = 10.0
+        if config and "cr_service_charge_percent" in config._fields:
+            percent = float(config.cr_service_charge_percent or 10.0)
+        return percent if percent > 0 else 10.0
+
+    def _cr_is_tip_name_candidate(self, line):
+        if not line or not line.product_id:
+            return False
+        product_name = line.product_id.display_name or line.product_id.name or ""
+        normalized_name = unicodedata.normalize("NFKD", product_name).encode("ascii", "ignore").decode("ascii").lower()
+        tip_keywords = ("propina", "servicio", "tip", "service charge")
+        return any(keyword in normalized_name for keyword in tip_keywords)
+
+    def _cr_guess_tip_line_ids(self):
+        """Fallback for sessions where tip product isn't configured on POS config.
+
+        We only classify as tip/otros-cargos when a single candidate line matches:
+        - product name strongly suggests tip/service charge, and
+        - its subtotal equals configured service percentage over non-tip subtotal.
+        """
+        self.ensure_one()
+        candidate_lines = [
+            line
+            for line in self.lines
+            if (line.price_subtotal or 0.0) > 0 and self._cr_is_tip_name_candidate(line)
+        ]
+        if len(candidate_lines) != 1:
+            return set()
+
+        candidate = candidate_lines[0]
+        base_subtotal = sum(
+            line.price_subtotal or 0.0
+            for line in self.lines
+            if line.id != candidate.id and (line.price_subtotal or 0.0) > 0
+        )
+        if base_subtotal <= 0:
+            return set()
+
+        expected = round(base_subtotal * (self._cr_get_service_charge_percent() / 100.0), 5)
+        tip_amount = round(candidate.price_subtotal or 0.0, 5)
+        tolerance = 0.05
+        if abs(tip_amount - expected) > tolerance:
+            return set()
+        return {candidate.id}
 
     def _cr_build_service_charge_from_tip_lines(self):
         """Derive FE OtrosCargos code 06 from native Odoo POS tip lines.

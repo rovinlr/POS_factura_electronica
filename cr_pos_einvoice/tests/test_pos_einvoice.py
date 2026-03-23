@@ -1478,3 +1478,42 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertTrue(order.cr_other_charges_json)
         self.assertEqual(order.cr_other_charges_amount, 10.0)
+
+    def test_build_payload_guesses_tip_line_without_tip_product_config(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        base_product = self.env["product.product"].create({"name": "Producto Base 2", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0})
+        service_product = self.env["product.product"].create(
+            {"name": "Servicio 10%", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": base_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": service_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: self.env["product.product"]):
+            payload = order._cr_build_pos_payload(
+                consecutivo="00100001040000000113",
+                clave="50601010100000000000000100001040000000113123456789",
+                document_type="te",
+            )
+
+        self.assertEqual(len(payload["lines"]), 1)
+        self.assertEqual(payload["lines"][0]["product_id"], base_product.id)
+        self.assertEqual(len(payload["other_charges"]), 1)
+        self.assertEqual(payload["other_charges"][0]["code"], "06")
+        self.assertEqual(payload["other_charges"][0]["amount"], 10.0)
