@@ -138,23 +138,71 @@ patch(PaymentScreen.prototype, {
     },
 
     async addTipProductCompat(order, tipProduct, options) {
+        const failures = [];
+        const baselineTipLineCount = this.getTipLines(order).length;
+
+        const lineWasAdded = () => this.getTipLines(order).length > baselineTipLineCount;
+
+        const tryCall = async (label, fn) => {
+            try {
+                await fn();
+                if (lineWasAdded()) {
+                    return true;
+                }
+                failures.push(_t("%s no agregó ninguna línea.", label));
+                return false;
+            } catch (error) {
+                failures.push(`${label}: ${error?.message || error}`);
+                return false;
+            }
+        };
+
         if (this.pos?.addProductToCurrentOrder) {
-            await this.pos.addProductToCurrentOrder(tipProduct, options);
-            return;
+            if (
+                await tryCall("pos.addProductToCurrentOrder(product, options)", async () =>
+                    this.pos.addProductToCurrentOrder(tipProduct, options)
+                )
+            ) {
+                return;
+            }
+            if (
+                await tryCall("pos.addProductToCurrentOrder({ product, ...options })", async () =>
+                    this.pos.addProductToCurrentOrder({
+                        product: tipProduct,
+                        ...options,
+                    })
+                )
+            ) {
+                return;
+            }
         }
         if (this.pos?.addLineToCurrentOrder) {
-            await this.pos.addLineToCurrentOrder(tipProduct, options);
-            return;
+            if (
+                await tryCall("pos.addLineToCurrentOrder(product, options)", async () =>
+                    this.pos.addLineToCurrentOrder(tipProduct, options)
+                )
+            ) {
+                return;
+            }
+            if (
+                await tryCall("pos.addLineToCurrentOrder({ product, ...options })", async () =>
+                    this.pos.addLineToCurrentOrder({
+                        product: tipProduct,
+                        ...options,
+                    })
+                )
+            ) {
+                return;
+            }
         }
         if (order?.add_product) {
-            order.add_product(tipProduct, options);
-            return;
+            if (await tryCall("order.add_product(product, options)", async () => order.add_product(tipProduct, options))) {
+                return;
+            }
         }
 
         throw new Error(
-            _t(
-                "No existe API compatible para agregar líneas en esta versión de POS (se probó pos.addProductToCurrentOrder, pos.addLineToCurrentOrder y order.add_product)."
-            )
+            _t("No se pudo agregar la línea de propina. Detalle técnico: %s", failures.join(" | "))
         );
     },
 
@@ -328,8 +376,6 @@ patch(PaymentScreen.prototype, {
 
         await this.addTipProductCompat(order, tipProduct, {
             quantity: 1,
-            price: expectedAmount,
-            extras: { price_manually_set: true },
         });
 
         const newTipLines = this.getTipLines(order);
