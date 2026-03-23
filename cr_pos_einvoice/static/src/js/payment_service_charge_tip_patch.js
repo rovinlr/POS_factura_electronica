@@ -137,6 +137,27 @@ patch(PaymentScreen.prototype, {
         );
     },
 
+    async addTipProductCompat(order, tipProduct, options) {
+        if (this.pos?.addProductToCurrentOrder) {
+            await this.pos.addProductToCurrentOrder(tipProduct, options);
+            return;
+        }
+        if (this.pos?.addLineToCurrentOrder) {
+            await this.pos.addLineToCurrentOrder(tipProduct, options);
+            return;
+        }
+        if (order?.add_product) {
+            order.add_product(tipProduct, options);
+            return;
+        }
+
+        throw new Error(
+            _t(
+                "No existe API compatible para agregar líneas en esta versión de POS (se probó pos.addProductToCurrentOrder, pos.addLineToCurrentOrder y order.add_product)."
+            )
+        );
+    },
+
     getTipLines(order = null) {
         const activeOrder = order || this.currentOrder || this.pos?.get_order?.();
         if (!activeOrder) return [];
@@ -263,9 +284,7 @@ patch(PaymentScreen.prototype, {
         );
 
         if (allLinesAlreadyMatch) {
-            for (const line of [...tipLines]) {
-                order.removeOrderline?.(line);
-            }
+            await this.applyServiceChargeLine(order, tipProduct, expectedAmount);
             return;
         }
 
@@ -277,25 +296,50 @@ patch(PaymentScreen.prototype, {
                     this.getServiceChargePercent()
                 ),
                 confirmLabel: _t("Reemplazar"),
-                confirm: () => this.applyServiceChargeLine(order, tipProduct, expectedAmount),
+                confirm: async () => {
+                    try {
+                        await this.applyServiceChargeLine(order, tipProduct, expectedAmount);
+                    } catch (error) {
+                        this.dialog.add(AlertDialog, {
+                            title: _t("No se pudo aplicar el servicio"),
+                            body: error?.message || _t("Ocurrió un error inesperado al agregar la línea de propina."),
+                        });
+                    }
+                },
             });
             return;
         }
 
-        this.applyServiceChargeLine(order, tipProduct, expectedAmount);
+        try {
+            await this.applyServiceChargeLine(order, tipProduct, expectedAmount);
+        } catch (error) {
+            this.dialog.add(AlertDialog, {
+                title: _t("No se pudo aplicar el servicio"),
+                body: error?.message || _t("Ocurrió un error inesperado al agregar la línea de propina."),
+            });
+        }
     },
 
-    applyServiceChargeLine(order, tipProduct, expectedAmount) {
+    async applyServiceChargeLine(order, tipProduct, expectedAmount) {
         const tipLines = this.getTipLines(order);
         for (const line of [...tipLines]) {
             order.removeOrderline?.(line);
         }
-        order.add_product?.(tipProduct, {
+
+        await this.addTipProductCompat(order, tipProduct, {
             quantity: 1,
             price: expectedAmount,
             extras: { price_manually_set: true },
         });
+
         const newTipLines = this.getTipLines(order);
+        if (!newTipLines.length) {
+            throw new Error(
+                _t(
+                    "El POS no devolvió ninguna línea de propina después de agregar el producto configurado."
+                )
+            );
+        }
         const [first, ...duplicates] = newTipLines;
         for (const duplicateLine of duplicates) {
             order.removeOrderline?.(duplicateLine);
