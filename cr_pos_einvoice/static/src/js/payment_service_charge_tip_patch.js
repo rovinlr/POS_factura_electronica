@@ -4,6 +4,7 @@ import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
 import { AlertDialog, ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { NumberPopup } from "@point_of_sale/app/utils/input_popups/number_popup";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 
 const DEFAULT_SERVICE_CHARGE_PERCENT = 10;
@@ -157,41 +158,13 @@ patch(PaymentScreen.prototype, {
             }
         };
 
-        if (this.pos?.addProductToCurrentOrder) {
-            if (
-                await tryCall("pos.addProductToCurrentOrder(product, options)", async () =>
-                    this.pos.addProductToCurrentOrder(tipProduct, options)
-                )
-            ) {
-                return;
-            }
-            if (
-                await tryCall("pos.addProductToCurrentOrder({ product, ...options })", async () =>
-                    this.pos.addProductToCurrentOrder({
-                        product: tipProduct,
-                        ...options,
-                    })
-                )
-            ) {
+        if (order?.set_tip) {
+            if (await tryCall("order.set_tip(amount)", async () => order.set_tip(toNumber(options?.price, 0)))) {
                 return;
             }
         }
-        if (this.pos?.addLineToCurrentOrder) {
-            if (
-                await tryCall("pos.addLineToCurrentOrder(product, options)", async () =>
-                    this.pos.addLineToCurrentOrder(tipProduct, options)
-                )
-            ) {
-                return;
-            }
-            if (
-                await tryCall("pos.addLineToCurrentOrder({ product, ...options })", async () =>
-                    this.pos.addLineToCurrentOrder({
-                        product: tipProduct,
-                        ...options,
-                    })
-                )
-            ) {
+        if (order?.setTip) {
+            if (await tryCall("order.setTip(amount)", async () => order.setTip(toNumber(options?.price, 0)))) {
                 return;
             }
         }
@@ -270,6 +243,22 @@ patch(PaymentScreen.prototype, {
         return roundCurrency(base * (percent / 100));
     },
 
+    async askServiceChargeAmount(order, suggestedAmount) {
+        const subtotal = this.getOrderSubtotalWithoutTaxExcludingTip(order);
+        const { confirmed, payload } = await this.dialog.add(NumberPopup, {
+            title: this.getServiceChargeLabel(),
+            startingValue: String(suggestedAmount),
+            confirmText: _t("Aplicar"),
+            body: _t(
+                "Subtotal sin impuestos: %s. Puede ajustar el monto de la propina/servicio.",
+                roundCurrency(subtotal).toFixed(2)
+            ),
+        });
+        if (!confirmed) return null;
+        const amount = roundCurrency(toNumber(payload, 0));
+        return amount > 0 ? amount : null;
+    },
+
     isServiceChargeApplied() {
         const order = this.currentOrder || this.pos?.get_order?.();
         if (!order) return false;
@@ -317,12 +306,16 @@ patch(PaymentScreen.prototype, {
             return;
         }
 
-        const expectedAmount = this.getExpectedServiceAmount(order);
-        if (expectedAmount <= 0) {
+        const suggestedAmount = this.getExpectedServiceAmount(order);
+        if (suggestedAmount <= 0) {
             this.dialog.add(AlertDialog, {
                 title: _t("Monto inválido"),
                 body: _t("No se pudo calcular el cargo de servicio porque el subtotal sin impuestos es cero."),
             });
+            return;
+        }
+        const expectedAmount = await this.askServiceChargeAmount(order, suggestedAmount);
+        if (!expectedAmount) {
             return;
         }
 
@@ -376,6 +369,7 @@ patch(PaymentScreen.prototype, {
 
         await this.addTipProductCompat(order, tipProduct, {
             quantity: 1,
+            price: expectedAmount,
         });
 
         const newTipLines = this.getTipLines(order);
