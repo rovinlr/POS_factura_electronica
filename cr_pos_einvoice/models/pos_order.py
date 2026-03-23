@@ -2177,7 +2177,25 @@ class PosOrder(models.Model):
 
     def _cr_get_other_charges_payload(self):
         self.ensure_one()
+        marked_line_charge = self._cr_build_service_charge_from_marked_lines()
         explicit_charges = self._cr_normalize_other_charges(self.cr_other_charges_json)
+        if marked_line_charge:
+            # Authoritative source: persisted POS line markers/product flags edited by
+            # operators in backend must prevail over stale UI JSON payloads.
+            # This prevents FE XML drift when `cr_other_charges_json` was computed
+            # before line-level adjustments.
+            if (
+                explicit_charges
+                and len(explicit_charges) == 1
+                and abs(float(explicit_charges[0].get("amount", 0.0)) - float(marked_line_charge.get("amount", 0.0))) > 0.00001
+            ):
+                self._logger.info(
+                    "POS order %s: overriding stale cr_other_charges_json amount %s with line-derived amount %s.",
+                    self.id,
+                    explicit_charges[0].get("amount"),
+                    marked_line_charge.get("amount"),
+                )
+            return [marked_line_charge]
         if explicit_charges:
             return explicit_charges
         tip_charge = self._cr_build_service_charge_from_tip_lines()
@@ -2291,6 +2309,12 @@ class PosOrder(models.Model):
             return tip_line_ids
         return self._cr_guess_tip_line_ids()
 
+    def _cr_get_marked_other_charge_line_ids(self):
+        """Return POS lines explicitly marked as other-charge without heuristic guessing."""
+        self.ensure_one()
+        tip_product = self._cr_get_tip_product()
+        return {line.id for line in self.lines if self._cr_is_tip_line(line, tip_product=tip_product)}
+
     @api.model
     def _cr_get_service_charge_percent(self, config=False):
         """Return configured service charge percent without requiring a singleton.
@@ -2377,6 +2401,29 @@ class PosOrder(models.Model):
             for line in self.lines
             if line.id not in tip_line_ids and (line.price_subtotal or 0.0) > 0
         )
+        percent = round(self._cr_get_service_charge_percent(), 5)
+        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
+        return {
+            "type": "01",
+            "code": "06",
+            "amount": round(tip_amount, 5),
+            "currency": str(self.currency_id.name or "CRC"),
+            "description": f"Imp. Serv {percent_display}%",
+            "percent": percent,
+            "fp_is_other_charge_line": True,
+        }
+
+    def _cr_build_service_charge_from_marked_lines(self):
+        """Build OtrosCargos from persisted line markers/product flags only."""
+        self.ensure_one()
+        marked_line_ids = self._cr_get_marked_other_charge_line_ids()
+        if not marked_line_ids:
+            return {}
+
+        tip_amount = sum(line.price_subtotal or 0.0 for line in self.lines if line.id in marked_line_ids)
+        if tip_amount <= 0:
+            return {}
+
         percent = round(self._cr_get_service_charge_percent(), 5)
         percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
         return {
