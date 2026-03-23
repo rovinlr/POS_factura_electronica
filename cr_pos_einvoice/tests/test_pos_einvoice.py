@@ -1858,6 +1858,16 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(charges[0]["fp_is_other_charge_line"])
         self.assertTrue(charges[0]["cr_is_other_charge_line"])
 
+    def test_is_other_charge_line_payload_accepts_generic_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        payload = {
+            "product_id": False,
+            "qty": 1.0,
+            "price_unit": 5840.0,
+            "is_other_charge_line": "true",
+        }
+        self.assertTrue(order._cr_is_other_charge_line_payload(payload))
+
     def test_build_payload_guesses_tip_line_without_tip_product_config(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(
