@@ -102,13 +102,6 @@ patch(PaymentScreen.prototype, {
     setup() {
         super.setup(...arguments);
         this.dialog = this.dialog || useService("dialog");
-
-        const percent = this.getServiceChargePercent();
-        const tipProductId = this.getServiceTipProductId();
-        if (tipProductId && percent > 0) {
-            this.pos.config.tip_product_id = false;
-            this.pos.config.pos_tip_product_id = false;
-        }
     },
 
     getServiceChargePercent() {
