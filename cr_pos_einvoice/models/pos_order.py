@@ -3551,27 +3551,33 @@ class PosOrder(models.Model):
         )
         is_credit_note = (document_type or "").lower() == "nc" or self.amount_total < 0
         tip_line_ids = self._cr_get_tip_line_ids()
-        line_commands = []
-        for line in self.lines:
-            if line.id in tip_line_ids:
-                # Native tip lines are emitted as FE OtrosCargos (code 06), not DetalleServicio.
-                continue
-            line_quantity = abs(line.qty) if is_credit_note else line.qty
-            line_commands.append(
-                (
-                    0,
-                    0,
-                    {
-                        "product_id": line.product_id.id,
-                        "name": line.full_product_name or line.product_id.display_name,
-                        "quantity": line_quantity,
-                        "price_unit": line.price_unit,
-                        "discount": line.discount,
-                        "tax_ids": [(6, 0, line.tax_ids_after_fiscal_position.ids)],
-                        "product_uom_id": line.product_uom_id.id if line.product_uom_id else False,
-                    },
-                )
-            )
+        move_line_fields = self.env["account.move.line"]._fields
+
+        def _build_line_commands(include_tip_lines=False):
+            commands = []
+            for line in self.lines:
+                is_other_charge_line = bool(line.id in tip_line_ids)
+                if is_other_charge_line and not include_tip_lines:
+                    # Native tip/other-charge lines are ideally emitted via OtrosCargos payload.
+                    continue
+                line_quantity = abs(line.qty) if is_credit_note else line.qty
+                line_vals = {
+                    "product_id": line.product_id.id,
+                    "name": line.full_product_name or line.product_id.display_name,
+                    "quantity": line_quantity,
+                    "price_unit": line.price_unit,
+                    "discount": line.discount,
+                    "tax_ids": [(6, 0, line.tax_ids_after_fiscal_position.ids)],
+                    "product_uom_id": line.product_uom_id.id if line.product_uom_id else False,
+                }
+                if is_other_charge_line:
+                    for marker in ("fp_is_other_charge_line", "cr_is_other_charge_line", "is_other_charge_line"):
+                        if marker in move_line_fields:
+                            line_vals[marker] = True
+                commands.append((0, 0, line_vals))
+            return commands
+
+        line_commands = _build_line_commands(include_tip_lines=False)
 
         move_vals = {
             "move_type": "out_refund" if is_credit_note else "out_invoice",
@@ -3594,7 +3600,15 @@ class PosOrder(models.Model):
             if origin_invoice and "reversed_entry_id" in self.env["account.move"]._fields:
                 move_vals["reversed_entry_id"] = origin_invoice.id
         move = self.env["account.move"].with_company(company).new(move_vals)
-        self._cr_set_other_charges_on_virtual_move(move, self._cr_get_other_charges_payload())
+
+        other_charges = self._cr_get_other_charges_payload()
+        injected = self._cr_set_other_charges_on_virtual_move(move, other_charges)
+        if other_charges and tip_line_ids and not injected:
+            # Compatibility fallback: some FE engines derive OtrosCargos from marked
+            # invoice lines rather than a dedicated move-level field.
+            # Rebuild including tip/other-charge lines with marker flags.
+            move = self.env["account.move"].with_company(company).new({**move_vals, "invoice_line_ids": _build_line_commands(include_tip_lines=True)})
+
         # Asegura cálculo de totales para XML.
         move._compute_amount()
         return move

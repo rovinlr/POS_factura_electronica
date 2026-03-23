@@ -1627,6 +1627,53 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(injected[0]["percent"], 10.0)
         self.assertEqual(injected[0]["amount"], 15.0)
 
+    def test_build_virtual_move_falls_back_to_marked_lines_when_other_charges_field_not_available(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create(
+            {"name": "Producto Base Fallback", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0}
+        )
+        tip_product = self.env["product.product"].create(
+            {"name": "Propina Fallback", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+        other_charges = [{"code": "06", "amount": 10.0, "percent": 10.0, "description": "Imp. Serv 10%"}]
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product), patch.object(
+            type(order), "_cr_get_other_charges_payload", lambda self: other_charges
+        ), patch.object(type(order), "_cr_set_other_charges_on_virtual_move", lambda self, move, charges: False):
+            move = order._cr_build_virtual_move(
+                document_type="te",
+                consecutivo="00100001040000000115",
+                clave="50601010100000000000000100001040000000115123456789",
+            )
+
+        self.assertEqual(len(move.invoice_line_ids), 2)
+        tip_line = move.invoice_line_ids.filtered(lambda line: line.product_id == tip_product)
+        self.assertTrue(tip_line)
+        marker_fields = ("fp_is_other_charge_line", "cr_is_other_charge_line", "is_other_charge_line")
+        marker_field = next((name for name in marker_fields if name in tip_line._fields), False)
+        if marker_field:
+            self.assertTrue(tip_line[0][marker_field])
+
     def test_prepare_other_charges_for_x2many_field_returns_create_commands(self):
         order = self.env["pos.order"]
 
