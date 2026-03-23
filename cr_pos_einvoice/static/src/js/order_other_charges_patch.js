@@ -5,7 +5,7 @@ import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 
 const SERVICE_CHARGE_CODE = "06";
-const SERVICE_CHARGE_RATE = 0.1;
+const DEFAULT_SERVICE_CHARGE_PERCENT = 10;
 
 const roundAmount = (value) => Math.round(value * 100000) / 100000;
 
@@ -35,16 +35,26 @@ const getOrderSubtotal = (order) => {
     return Number.isFinite(linesSubtotal) && linesSubtotal > 0 ? linesSubtotal : 0;
 };
 
-const computeServiceCharge = (subtotal) => {
+const getServiceChargePercent = (order) => {
+    const value = Number(order?.pos?.config?.cr_service_charge_percent ?? DEFAULT_SERVICE_CHARGE_PERCENT);
+    if (!Number.isFinite(value) || value <= 0) {
+        return DEFAULT_SERVICE_CHARGE_PERCENT;
+    }
+    return value;
+};
+
+const computeServiceCharge = (subtotal, percent = DEFAULT_SERVICE_CHARGE_PERCENT) => {
     const base = Number(subtotal);
     if (!Number.isFinite(base) || base <= 0) return null;
+    const numericPercent = Number(percent);
+    const safePercent = Number.isFinite(numericPercent) && numericPercent > 0 ? numericPercent : DEFAULT_SERVICE_CHARGE_PERCENT;
     return {
         type: "01",
         code: SERVICE_CHARGE_CODE,
-        amount: roundAmount(base * SERVICE_CHARGE_RATE),
+        amount: roundAmount(base * (safePercent / 100)),
         currency: "CRC",
-        description: "Impuesto de servicio 10%",
-        percent: 10,
+        description: `Impuesto de servicio ${safePercent}%`,
+        percent: safePercent,
     };
 };
 
@@ -64,8 +74,8 @@ const normalizeCharges = (charges, subtotal = null, options = {}) => {
         if (!item || typeof item !== "object") continue;
         const code = String(item.code ?? item.codigo ?? "");
         if (code && code !== SERVICE_CHARGE_CODE) continue;
-        const percent = Number(item.percent ?? item.porcentaje ?? 10);
-        const computed = computeServiceCharge(subtotal);
+        const percent = Number(item.percent ?? item.porcentaje ?? DEFAULT_SERVICE_CHARGE_PERCENT);
+        const computed = computeServiceCharge(subtotal, percent);
         const amount = Number(forceSubtotalAmount ? computed?.amount : (item.amount ?? item.monto ?? computed?.amount));
         if (!Number.isFinite(amount) || amount <= 0) continue;
         normalized.push({
@@ -73,8 +83,8 @@ const normalizeCharges = (charges, subtotal = null, options = {}) => {
             code: SERVICE_CHARGE_CODE,
             amount: roundAmount(amount),
             currency: String(item.currency ?? item.moneda ?? "CRC"),
-            description: String(item.description ?? item.detalle ?? "Impuesto de servicio 10%"),
-            percent: Number.isFinite(percent) ? percent : 10,
+            description: String(item.description ?? item.detalle ?? `Impuesto de servicio ${DEFAULT_SERVICE_CHARGE_PERCENT}%`),
+            percent: Number.isFinite(percent) && percent > 0 ? percent : DEFAULT_SERVICE_CHARGE_PERCENT,
         });
     }
     return normalized;
@@ -125,12 +135,13 @@ patch(PosOrder.prototype, {
             this.setOtherCharges([]);
             return false;
         }
+        const percent = getServiceChargePercent(this);
         this.setOtherCharges([
             {
                 type: "01",
                 code: SERVICE_CHARGE_CODE,
-                percent: 10,
-                description: "Impuesto de servicio 10%",
+                percent,
+                description: `Impuesto de servicio ${percent}%`,
                 currency: "CRC",
             },
         ]);
@@ -169,13 +180,17 @@ patch(ControlButtons.prototype, {
     },
 
     get serviceChargeButtonLabel() {
-        return this.currentOrder?.hasServiceCharge10?.() ? "Servicio 10%: ON" : "Servicio 10%: OFF";
+        const order = this.currentOrder;
+        const percent = getServiceChargePercent(order);
+        return order?.hasServiceCharge10?.() ? `Servicio ${percent}%: ON` : `Servicio ${percent}%: OFF`;
     },
 
     get serviceChargeButtonTitle() {
-        return this.currentOrder?.hasServiceCharge10?.()
-            ? "Quitar impuesto de servicio 10%"
-            : "Aplicar impuesto de servicio 10%";
+        const order = this.currentOrder;
+        const percent = getServiceChargePercent(order);
+        return order?.hasServiceCharge10?.()
+            ? `Quitar impuesto de servicio ${percent}%`
+            : `Aplicar impuesto de servicio ${percent}%`;
     },
 
     get isServiceCharge10Active() {
