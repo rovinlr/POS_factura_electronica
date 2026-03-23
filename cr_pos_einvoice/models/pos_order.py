@@ -1621,6 +1621,7 @@ class PosOrder(models.Model):
         This override keeps compatibility while ensuring FE flows always see
         persisted NC reference data before building XML.
         """
+        order = self._cr_sanitize_ui_order_for_core(order)
         draft = False
         existing_order = False
 
@@ -1651,6 +1652,35 @@ class PosOrder(models.Model):
         order_record._cr_capture_reference_on_payment()
         order_record._cr_process_after_payment()
         return result
+
+    @api.model
+    def _cr_sanitize_ui_order_for_core(self, order):
+        """Remove non-model keys from POS payload before delegating to core.
+
+        Odoo's `pos.order._process_order` may call `create` directly with keys
+        present in the incoming payload. If FE-specific frontend payload keys are
+        left untouched (for example `cr_other_charges`), core raises:
+        `ValueError: Invalid field ... in 'pos.order'`.
+
+        We keep the information in `data` so `_order_fields` can map it to
+        persisted fields (`cr_other_charges_json`) in a controlled way.
+        """
+        if not isinstance(order, dict):
+            return order
+
+        sanitized = dict(order)
+        payload = sanitized.get("data")
+        if not isinstance(payload, dict):
+            payload = {}
+            sanitized["data"] = payload
+
+        # Compatibility aliases from custom/legacy POS UIs.
+        for key in ("cr_other_charges", "other_charges", "otros_cargos"):
+            if key in sanitized and key not in payload:
+                payload[key] = sanitized.get(key)
+            sanitized.pop(key, None)
+
+        return sanitized
 
     @api.model
     def _order_fields(self, ui_order):
