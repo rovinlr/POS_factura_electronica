@@ -2,7 +2,6 @@
 
 import { patch } from "@web/core/utils/patch";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
-import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 
 const SERVICE_CHARGE_CODE = "06";
 const DEFAULT_SERVICE_CHARGE_PERCENT = 10;
@@ -171,38 +170,5 @@ patch(PosOrder.prototype, {
         data.otros_cargos = charges;
         data.service_charge_10 = charges.length > 0;
         return data;
-    },
-});
-
-patch(ControlButtons.prototype, {
-    get currentOrder() {
-        return this.pos?.get_order?.() || null;
-    },
-
-    get serviceChargeButtonLabel() {
-        const order = this.currentOrder;
-        const percent = getServiceChargePercent(order);
-        return order?.hasServiceCharge10?.() ? `Servicio ${percent}%: ON` : `Servicio ${percent}%: OFF`;
-    },
-
-    get serviceChargeButtonTitle() {
-        const order = this.currentOrder;
-        const percent = getServiceChargePercent(order);
-        return order?.hasServiceCharge10?.()
-            ? `Quitar impuesto de servicio ${percent}%`
-            : `Aplicar impuesto de servicio ${percent}%`;
-    },
-
-    get isServiceCharge10Active() {
-        return Boolean(this.currentOrder?.hasServiceCharge10?.());
-    },
-
-    onClickServiceCharge10() {
-        const order = this.currentOrder;
-        if (!order) {
-            return;
-        }
-        order.toggleServiceCharge10?.();
-        this.render();
     },
 });
