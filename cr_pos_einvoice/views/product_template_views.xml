@@ -6,10 +6,11 @@
         <field name="inherit_id" ref="product.product_template_only_form_view"/>
         <field name="arch" type="xml">
             <!--
-            Anchor on a stable field (`available_in_pos`) instead of the tab/page name,
-            which changed across Odoo versions and caused upgrade ParseError.
+            Place the FE flag in General Information to keep UX consistent and
+            avoid positional/header-level insertion that can surface the field
+            outside the intended tab in newer Odoo layouts.
             -->
-            <xpath expr="//field[@name='available_in_pos']" position="after">
+            <xpath expr="//page[@name='general_information']//field[@name='categ_id']" position="after">
                 <field name="cr_is_other_charge_line"/>
             </xpath>
         </field>
