@@ -166,20 +166,32 @@ patch(PaymentScreen.prototype, {
         }
     },
 
+    _getOrderOtherChargesCandidates(order) {
+        if (!order) return [];
+        return [
+            order?.cr_other_charges,
+            order?.other_charges,
+            order?.data?.other_charges,
+            order?.getOtherCharges?.(),
+        ].filter((candidate) => Array.isArray(candidate));
+    },
+
+    hasOtherChargeCode06(order) {
+        const candidates = this._getOrderOtherChargesCandidates(order);
+        return candidates.some((charges) =>
+            charges.some((charge) => String(charge?.code ?? charge?.codigo ?? "") === "06")
+        );
+    },
+
     hasMatchingOtherCharge(order, expectedAmount) {
-        const charges =
-            order?.getOtherCharges?.() ||
-            order?.cr_other_charges ||
-            order?.other_charges ||
-            order?.data?.other_charges ||
-            [];
-        if (!Array.isArray(charges) || !charges.length) {
-            return false;
-        }
-        return charges.some(
-            (charge) =>
-                String(charge?.code ?? charge?.codigo ?? "") === "06" &&
-                amountsAreEquivalent(charge?.amount ?? charge?.monto ?? 0, expectedAmount)
+        const candidates = this._getOrderOtherChargesCandidates(order);
+        if (!candidates.length) return false;
+        return candidates.some((charges) =>
+            charges.some(
+                (charge) =>
+                    String(charge?.code ?? charge?.codigo ?? "") === "06" &&
+                    amountsAreEquivalent(charge?.amount ?? charge?.monto ?? 0, expectedAmount)
+            )
         );
     },
 
@@ -212,7 +224,9 @@ patch(PaymentScreen.prototype, {
             order.trigger?.("change", order);
             order._trigger?.("change", order);
         }
-        return this.hasMatchingOtherCharge(order, expectedAmount);
+        // Algunas variantes del POS recalculan `amount` automáticamente al leer
+        // getOtherCharges(); en ese caso validamos que el cargo código 06 exista.
+        return this.hasMatchingOtherCharge(order, expectedAmount) || this.hasOtherChargeCode06(order);
     },
 
     async addTipProductCompat(order, tipProduct, options) {
