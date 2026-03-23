@@ -2036,10 +2036,33 @@ class PosOrder(models.Model):
         config = self.config_id or self.session_id.config_id
         if not config:
             return self.env["product.product"]
-        for field_name in ("pos_tip_product_id", "tip_product_id"):
+        for field_name in ("cr_tip_product_id", "pos_tip_product_id", "tip_product_id"):
             if field_name in config._fields and config[field_name]:
                 return config[field_name]
         return self.env["product.product"]
+
+    def _cr_is_other_charge_product(self, product):
+        """Detect products flagged as Otros Cargos in compatible FE modules."""
+        if not product:
+            return False
+        product_tmpl = product.product_tmpl_id
+        candidate_markers = (
+            "is_other_charge",
+            "is_other_charges",
+            "is_otros_cargos",
+            "is_otro_cargo",
+            "l10n_cr_is_other_charge",
+            "l10n_cr_other_charge",
+            "fp_is_other_charge",
+            "fe_is_other_charge",
+            "cr_is_other_charge",
+        )
+        for marker in candidate_markers:
+            if marker in product._fields and product[marker]:
+                return True
+            if product_tmpl and marker in product_tmpl._fields and product_tmpl[marker]:
+                return True
+        return False
 
     def _cr_is_tip_line(self, line, tip_product=False):
         """Centralized predicate to detect native/custom POS tip lines safely."""
@@ -2053,6 +2076,8 @@ class PosOrder(models.Model):
         for marker in ("is_tip", "is_tip_line", "cr_is_tip_line"):
             if marker in line._fields and line[marker]:
                 return True
+        if self._cr_is_other_charge_product(line.product_id):
+            return True
         return False
 
     def _cr_get_tip_line_ids(self):
