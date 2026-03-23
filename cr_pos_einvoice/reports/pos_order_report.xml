@@ -242,7 +242,7 @@
                                     <td class="txt-left" style="text-align:left; padding-left:1mm;"><span t-esc="line.full_product_name or line.product_id.display_name"/></td>
                                     <td class="txt-right" style="text-align:right; white-space:nowrap;">
                                         <span t-esc="line.price_subtotal_incl" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
-                                        <span style="padding-left:1mm;" t-esc="'%s%%' % ('{:g}'.format(line_tax_percent))"/>
+                                        <span style="padding-left:1mm;" t-esc="'{}%'.format('{:g}'.format(line_tax_percent))"/>
                                     </td>
                                 </tr>
                             </tbody>
