@@ -155,6 +155,47 @@ patch(PaymentScreen.prototype, {
         );
     },
 
+    clearOtherChargesCompat(order) {
+        if (!order) return;
+        if (order?.setOtherCharges) {
+            order.setOtherCharges([]);
+            return;
+        }
+        if (Array.isArray(order.cr_other_charges)) {
+            order.cr_other_charges = [];
+        }
+    },
+
+    hasMatchingOtherCharge(order, expectedAmount) {
+        const charges = order?.getOtherCharges?.() || order?.cr_other_charges || [];
+        if (!Array.isArray(charges) || !charges.length) {
+            return false;
+        }
+        return charges.some(
+            (charge) =>
+                String(charge?.code ?? charge?.codigo ?? "") === "06" &&
+                amountsAreEquivalent(charge?.amount ?? charge?.monto ?? 0, expectedAmount)
+        );
+    },
+
+    applyServiceChargeAsOtherChargeCompat(order, expectedAmount) {
+        if (!order || expectedAmount <= 0 || !order?.setOtherCharges) {
+            return false;
+        }
+        const percent = this.getServiceChargePercent();
+        order.setOtherCharges([
+            {
+                type: "01",
+                code: "06",
+                percent,
+                amount: expectedAmount,
+                currency: this.pos?.currency?.name || "CRC",
+                description: _t("Impuesto de servicio %s%%", percent),
+            },
+        ]);
+        return this.hasMatchingOtherCharge(order, expectedAmount);
+    },
+
     async addTipProductCompat(order, tipProduct, options) {
         const failures = [];
         const baselineTipLineCount = this.getTipLines(order).length;
@@ -185,7 +226,8 @@ patch(PaymentScreen.prototype, {
             isOrderTotalAdjusted() ||
             (!amountsAreEquivalent(baselineTipAmount, expectedAmount) &&
                 this.getCurrentTipAmount(order) > 0 &&
-                amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount));
+                amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount)) ||
+            this.hasMatchingOtherCharge(order, expectedAmount);
 
         const tryCall = async (label, fn) => {
             try {
@@ -220,6 +262,13 @@ patch(PaymentScreen.prototype, {
             if (await tryCall("order.addProduct(product, options)", async () => order.addProduct(tipProduct, options))) {
                 return;
             }
+        }
+        if (
+            await tryCall("order.setOtherCharges([{code:'06', amount}])", async () =>
+                this.applyServiceChargeAsOtherChargeCompat(order, expectedAmount)
+            )
+        ) {
+            return;
         }
         throw new Error(
             _t(
@@ -412,6 +461,8 @@ patch(PaymentScreen.prototype, {
     },
 
     async applyServiceChargeLine(order, tipProduct, expectedAmount) {
+        this.clearOtherChargesCompat(order);
+
         if (order?.set_tip) {
             order.set_tip(0);
         } else if (order?.setTip) {
@@ -429,7 +480,11 @@ patch(PaymentScreen.prototype, {
         });
 
         const newTipLines = this.getTipLines(order);
-        if (!newTipLines.length && amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount)) {
+        if (
+            !newTipLines.length &&
+            (amountsAreEquivalent(this.getCurrentTipAmount(order), expectedAmount) ||
+                this.hasMatchingOtherCharge(order, expectedAmount))
+        ) {
             return;
         }
         if (!newTipLines.length) {
