@@ -1792,11 +1792,12 @@ class PosOrder(models.Model):
         except TypeError:
             fields_vals = super()._order_line_fields(line)
 
-        if (
-            "fp_is_other_charge_line" in self.env["pos.order.line"]._fields
-            and self._cr_is_other_charge_line_payload(line[2] if isinstance(line, (list, tuple)) and len(line) > 2 else {})
-        ):
-            fields_vals["fp_is_other_charge_line"] = True
+        line_payload = line[2] if isinstance(line, (list, tuple)) and len(line) > 2 else {}
+        if self._cr_is_other_charge_line_payload(line_payload):
+            if "fp_is_other_charge_line" in self.env["pos.order.line"]._fields:
+                fields_vals["fp_is_other_charge_line"] = True
+            if "cr_is_other_charge_line" in self.env["pos.order.line"]._fields:
+                fields_vals["cr_is_other_charge_line"] = True
         return fields_vals
 
     @api.model
@@ -1867,15 +1868,18 @@ class PosOrder(models.Model):
         """Mark line commands so l10n_cr_einvoice can consume fp_is_other_charge_line."""
         if (
             not isinstance(order_vals, dict)
-            or "fp_is_other_charge_line" not in self.env["pos.order.line"]._fields
             or not isinstance(order_vals.get("lines"), list)
         ):
             return
+        line_fields = self.env["pos.order.line"]._fields
         for command in order_vals["lines"]:
             if not isinstance(command, (list, tuple)) or len(command) < 3 or not isinstance(command[2], dict):
                 continue
             if self._cr_is_other_charge_line_payload(command[2]):
-                command[2]["fp_is_other_charge_line"] = True
+                if "fp_is_other_charge_line" in line_fields:
+                    command[2]["fp_is_other_charge_line"] = True
+                if "cr_is_other_charge_line" in line_fields:
+                    command[2]["cr_is_other_charge_line"] = True
 
     @api.model
     def _cr_extract_other_charge_from_ui_lines(self, payload, subtotal=0.0):
@@ -1898,14 +1902,14 @@ class PosOrder(models.Model):
         if total_amount <= 0:
             return {}
 
-        base_subtotal = max(float(subtotal or 0.0) - total_amount, 0.0)
-        percent = round((total_amount / base_subtotal) * 100, 5) if base_subtotal > 0 else 10.0
+        percent = round(self._cr_get_service_charge_percent(), 5)
+        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
         return {
             "type": "01",
             "code": "06",
             "amount": round(total_amount, 5),
             "currency": str(payload.get("currency") or "CRC"),
-            "description": f"Imp. Serv {percent:.5f}".rstrip("0").rstrip(".") + "%",
+            "description": f"Imp. Serv {percent_display}%",
             "percent": percent,
             "fp_is_other_charge_line": True,
         }
@@ -1939,7 +1943,7 @@ class PosOrder(models.Model):
     def _cr_is_other_charge_line_payload(self, line_vals):
         if not isinstance(line_vals, dict):
             return False
-        for marker in ("fp_is_other_charge_line", "is_tip_line", "is_tip", "cr_is_tip_line"):
+        for marker in ("fp_is_other_charge_line", "cr_is_other_charge_line", "is_tip_line", "is_tip", "cr_is_tip_line"):
             value = line_vals.get(marker)
             if isinstance(value, str):
                 value = value.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
@@ -2191,6 +2195,8 @@ class PosOrder(models.Model):
         for marker in ("is_tip", "is_tip_line", "cr_is_tip_line"):
             if marker in line._fields and line[marker]:
                 return True
+        if "cr_is_other_charge_line" in line._fields and line.cr_is_other_charge_line:
+            return True
         if "fp_is_other_charge_line" in line._fields and line.fp_is_other_charge_line:
             return True
         if self._cr_is_other_charge_product(line.product_id):
@@ -2273,7 +2279,7 @@ class PosOrder(models.Model):
             for line in self.lines
             if line.id not in tip_line_ids and (line.price_subtotal or 0.0) > 0
         )
-        percent = round((tip_amount / base_subtotal) * 100, 5) if base_subtotal > 0 else 10.0
+        percent = round(self._cr_get_service_charge_percent(), 5)
         percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
         return {
             "type": "01",
