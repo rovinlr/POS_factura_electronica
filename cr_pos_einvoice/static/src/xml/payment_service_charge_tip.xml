@@ -6,14 +6,13 @@
         t-inherit-mode="extension"
         owl="1"
     >
-        <xpath expr="//div[contains(@class, 'payment-buttons')]" position="inside">
+        <xpath expr="//div[hasclass('payment-buttons')]" position="inside">
             <button
-                t-if="this.shouldShowServiceChargeButton()"
-                class="button btn btn-light py-3"
-                t-att-class="this.isServiceChargeApplied() ? 'button btn btn-primary py-3' : 'button btn btn-light py-3'"
+                t-if="this.shouldShowServiceChargeButton && this.shouldShowServiceChargeButton()"
+                t-att-class="(this.isServiceChargeApplied && this.isServiceChargeApplied()) ? 'button btn btn-primary py-3' : 'button btn btn-light py-3'"
                 t-on-click="onClickServiceChargeButton"
             >
-                <span t-esc="this.getServiceChargeLabel()"/>
+                <span t-esc="this.getServiceChargeLabel ? this.getServiceChargeLabel() : 'Servicio'"/>
             </button>
         </xpath>
     </t>
