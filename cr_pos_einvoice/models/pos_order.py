@@ -19,6 +19,14 @@ from odoo.tools.float_utils import float_is_zero
 
 class PosOrder(models.Model):
     _inherit = "pos.order"
+    _CR_OTHER_CHARGE_LINE_MARKERS = (
+        "fp_is_other_charge_line",
+        "cr_is_other_charge_line",
+        "is_other_charge_line",
+        "is_tip_line",
+        "is_tip",
+        "cr_is_tip_line",
+    )
 
     _logger = logging.getLogger(__name__)
 
@@ -1942,7 +1950,7 @@ class PosOrder(models.Model):
     def _cr_is_other_charge_line_payload(self, line_vals):
         if not isinstance(line_vals, dict):
             return False
-        for marker in ("fp_is_other_charge_line", "cr_is_other_charge_line", "is_tip_line", "is_tip", "cr_is_tip_line"):
+        for marker in self._CR_OTHER_CHARGE_LINE_MARKERS:
             value = line_vals.get(marker)
             if isinstance(value, str):
                 value = value.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
@@ -2327,10 +2335,9 @@ class PosOrder(models.Model):
         for marker in ("is_tip", "is_tip_line", "cr_is_tip_line"):
             if marker in line._fields and line[marker]:
                 return True
-        if "cr_is_other_charge_line" in line._fields and line.cr_is_other_charge_line:
-            return True
-        if "fp_is_other_charge_line" in line._fields and line.fp_is_other_charge_line:
-            return True
+        for marker in self._CR_OTHER_CHARGE_LINE_MARKERS:
+            if marker in line._fields and line[marker]:
+                return True
         if self._cr_is_other_charge_product(line.product_id):
             return True
         return False
