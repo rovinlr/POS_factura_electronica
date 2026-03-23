@@ -3328,6 +3328,69 @@ class PosOrder(models.Model):
 
         return Partner.create(clean_vals)
 
+    def _cr_get_move_other_charges_field(self, move):
+        """Return the account.move field used by FE XML generator for OtrosCargos."""
+        self.ensure_one()
+        if not move:
+            return False, False
+
+        supported_types = {"char", "text", "html", "json", "serialized"}
+        preferred_names = (
+            "fp_other_charges",
+            "other_charges",
+            "otros_cargos",
+            "l10n_cr_other_charges",
+            "cr_other_charges_json",
+            "fp_other_charges_json",
+            "other_charges_json",
+            "otros_cargos_json",
+            "l10n_cr_other_charges_json",
+        )
+        for field_name in preferred_names:
+            field = move._fields.get(field_name)
+            if field and field.type in supported_types:
+                return field_name, field
+
+        for field_name, field in move._fields.items():
+            if field.type not in supported_types:
+                continue
+            normalized = field_name.lower()
+            looks_like_other_charges = (
+                ("other" in normalized and "charge" in normalized)
+                or ("otros" in normalized and "cargos" in normalized)
+                or ("otro" in normalized and "cargo" in normalized)
+            )
+            if looks_like_other_charges:
+                return field_name, field
+
+        return False, False
+
+    def _cr_set_other_charges_on_virtual_move(self, move, other_charges):
+        """Set OtrosCargos payload in the concrete field expected by l10n_cr_einvoice."""
+        self.ensure_one()
+        if not move or not other_charges:
+            return False
+
+        field_name, field = self._cr_get_move_other_charges_field(move)
+        if not field_name:
+            self._logger.info("No se encontró campo compatible de OtrosCargos en account.move para orden POS %s.", self.id)
+            return False
+
+        value = other_charges
+        if field.type in ("char", "text", "html"):
+            value = json.dumps(other_charges, ensure_ascii=False)
+
+        try:
+            move[field_name] = value
+            return True
+        except Exception:  # noqa: BLE001
+            self._logger.warning(
+                "No se pudo asignar OtrosCargos al campo %s en move virtual para orden POS %s.",
+                field_name,
+                self.id,
+            )
+            return False
+
     def _cr_build_virtual_move(self, *, document_type, consecutivo, clave):
         """Build a non-persisted account.move that reuses l10n_cr_einvoice XML generator for POS data."""
         self.ensure_one()
@@ -3336,8 +3399,12 @@ class PosOrder(models.Model):
             [("type", "=", "sale"), ("company_id", "=", company.id)], limit=1
         )
         is_credit_note = (document_type or "").lower() == "nc" or self.amount_total < 0
+        tip_line_ids = self._cr_get_tip_line_ids()
         line_commands = []
         for line in self.lines:
+            if line.id in tip_line_ids:
+                # Native tip lines are emitted as FE OtrosCargos (code 06), not DetalleServicio.
+                continue
             line_quantity = abs(line.qty) if is_credit_note else line.qty
             line_commands.append(
                 (
@@ -3376,6 +3443,7 @@ class PosOrder(models.Model):
             if origin_invoice and "reversed_entry_id" in self.env["account.move"]._fields:
                 move_vals["reversed_entry_id"] = origin_invoice.id
         move = self.env["account.move"].with_company(company).new(move_vals)
+        self._cr_set_other_charges_on_virtual_move(move, self._cr_get_other_charges_payload())
         # Asegura cálculo de totales para XML.
         move._compute_amount()
         return move
