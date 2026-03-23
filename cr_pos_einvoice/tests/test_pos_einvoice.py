@@ -1,3 +1,5 @@
+import json
+
 from odoo import fields
 from odoo.exceptions import UserError
 from odoo.tests import tagged
@@ -1448,6 +1450,70 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(payload["other_charges"][0]["code"], "06")
         self.assertEqual(payload["other_charges"][0]["amount"], 10.0)
         self.assertEqual(payload["other_charges"][0]["percent"], 10.0)
+
+    def test_build_virtual_move_excludes_tip_lines_and_injects_other_charges(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create(
+            {"name": "Producto Virtual", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0}
+        )
+        tip_product = self.env["product.product"].create(
+            {"name": "Propina Virtual", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 5.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+        other_charges = [
+            {
+                "type": "01",
+                "code": "06",
+                "description": "Imp. Serv 10%",
+                "percent": 10.0,
+                "amount": 15.0,
+                "currency": "CRC",
+            }
+        ]
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product), patch.object(
+            type(order),
+            "_cr_get_other_charges_payload",
+            lambda self: other_charges,
+        ):
+            move = order._cr_build_virtual_move(
+                document_type="te",
+                consecutivo="00100001040000000114",
+                clave="50601010100000000000000100001040000000114123456789",
+            )
+
+        self.assertEqual(len(move.invoice_line_ids), 1)
+        self.assertEqual(move.invoice_line_ids[0].product_id.id, main_product.id)
+
+        field_name, field = order._cr_get_move_other_charges_field(move)
+        if not field_name:
+            self.skipTest("No existe campo de otros cargos compatible en account.move para este entorno.")
+        injected = move[field_name]
+        if field.type in ("char", "text", "html"):
+            injected = json.loads(injected or "[]")
+        self.assertEqual(len(injected), 1)
+        self.assertEqual(injected[0]["code"], "06")
+        self.assertEqual(injected[0]["percent"], 10.0)
+        self.assertEqual(injected[0]["amount"], 15.0)
 
     def test_sync_other_charges_from_tip_lines_persists_json_for_reporting(self):
         company = self.env.company
