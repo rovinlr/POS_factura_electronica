@@ -187,6 +187,19 @@ const buildReferencePayload = (order) => {
     };
 };
 
+const stripNativeReceiptPartner = (data = {}) => {
+    // Odoo versions can render partner from different payload roots.
+    // We keep customer info only in our custom "Datos del cliente" block.
+    data.partner = null;
+    if (data.headerData && typeof data.headerData === "object") {
+        data.headerData.partner = null;
+    }
+    if (data.receipt && typeof data.receipt === "object" && data.receipt.headerData) {
+        data.receipt.headerData.partner = null;
+    }
+    return data;
+};
+
 patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(vals);
@@ -236,9 +249,7 @@ patch(PosOrder.prototype, {
         const data = parent.export_for_printing
             ? parent.export_for_printing.call(this, ...arguments)
             : {};
-        // Avoid duplicated customer block in printed ticket header.
-        // We render customer data in our dedicated "Datos del cliente" section.
-        data.partner = null;
+        stripNativeReceiptPartner(data);
         data.cr_order_date_ddmmyyyy =
             formatDateDDMMYYYY(data.date?.local) ||
             formatDateDDMMYYYY(data.date_order) ||
@@ -253,9 +264,7 @@ patch(PosOrder.prototype, {
         const data = parent.exportForPrinting
             ? parent.exportForPrinting.call(this, ...arguments)
             : this.export_for_printing(...arguments);
-        // Avoid duplicated customer block in printed ticket header.
-        // We render customer data in our dedicated "Datos del cliente" section.
-        data.partner = null;
+        stripNativeReceiptPartner(data);
         data.cr_order_date_ddmmyyyy =
             formatDateDDMMYYYY(data.date?.local) ||
             formatDateDDMMYYYY(data.date_order) ||
