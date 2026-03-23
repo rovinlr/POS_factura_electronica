@@ -2214,12 +2214,30 @@ class PosOrder(models.Model):
             return tip_line_ids
         return self._cr_guess_tip_line_ids()
 
-    def _cr_get_service_charge_percent(self):
-        self.ensure_one()
-        config = self.config_id or self.session_id.config_id
+    @api.model
+    def _cr_get_service_charge_percent(self, config=False):
+        """Return configured service charge percent without requiring a singleton.
+
+        This method is invoked both from persisted order records and from
+        UI-sanitization paths where ``self`` can be an empty model recordset.
+        """
+        pos_config = config if config else False
+        if not pos_config and len(self) == 1:
+            pos_config = self.config_id or self.session_id.config_id
+
+        if not pos_config:
+            session_id = (
+                self.env.context.get("pos_session_id")
+                or self.env.context.get("default_session_id")
+            )
+            if session_id:
+                session = self.env["pos.session"].browse(session_id)
+                if session.exists():
+                    pos_config = session.config_id
+
         percent = 10.0
-        if config and "cr_service_charge_percent" in config._fields:
-            percent = float(config.cr_service_charge_percent or 10.0)
+        if pos_config and "cr_service_charge_percent" in pos_config._fields:
+            percent = float(pos_config.cr_service_charge_percent or 10.0)
         return percent if percent > 0 else 10.0
 
     def _cr_is_tip_name_candidate(self, line):
