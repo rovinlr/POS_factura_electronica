@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t
+        t-name="cr_pos_einvoice.PaymentScreenButtonsServiceCharge"
+        t-inherit="point_of_sale.PaymentScreenButtons"
+        t-inherit-mode="extension"
+        owl="1"
+    >
+        <xpath expr="//div[contains(@class, 'payment-buttons')]" position="inside">
+            <button
+                t-if="this.shouldShowServiceChargeButton()"
+                class="button btn btn-light py-3"
+                t-att-class="this.isServiceChargeApplied() ? 'button btn btn-primary py-3' : 'button btn btn-light py-3'"
+                t-on-click="onClickServiceChargeButton"
+            >
+                <span t-esc="this.getServiceChargeLabel()"/>
+            </button>
+        </xpath>
+    </t>
+</templates>
