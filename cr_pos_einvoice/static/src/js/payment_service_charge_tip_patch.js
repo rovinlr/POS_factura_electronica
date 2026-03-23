@@ -26,6 +26,18 @@ const resolveMany2oneId = (value) => {
 
 const amountsAreEquivalent = (left, right) => Math.abs(toNumber(left) - toNumber(right)) < EPSILON;
 
+const getLineSubtotalWithoutTax = (line) =>
+    toNumber(
+        line?.get_price_without_tax?.() ??
+            line?.getPriceWithoutTax?.() ??
+            line?.price_subtotal ??
+            line?.get_display_price?.() ??
+            line?.getDisplayPrice?.() ??
+            line?.get_unit_price?.() ??
+            line?.getUnitPrice?.() ??
+            0
+    );
+
 patch(PaymentScreen.prototype, {
     setup() {
         super.setup(...arguments);
@@ -89,16 +101,26 @@ patch(PaymentScreen.prototype, {
         if (!activeOrder) return 0;
         const lines = activeOrder.get_orderlines?.() || activeOrder.getOrderlines?.() || [];
         const tipProductId = this.getServiceTipProductId();
-        return lines.reduce((acc, line) => {
+        const subtotalFromLines = lines.reduce((acc, line) => {
             const productId = line?.product?.id || line?.get_product?.()?.id || line?.getProduct?.()?.id;
             if (tipProductId && productId === tipProductId) {
                 return acc;
             }
-            const subtotalWithoutTax = toNumber(
-                line?.get_price_without_tax?.() ?? line?.getPriceWithoutTax?.() ?? line?.price_subtotal ?? 0
-            );
-            return acc + subtotalWithoutTax;
+            return acc + getLineSubtotalWithoutTax(line);
         }, 0);
+        if (subtotalFromLines > 0) {
+            return subtotalFromLines;
+        }
+
+        const subtotalFromOrder = toNumber(
+            activeOrder.get_total_without_tax?.() ?? activeOrder.getTotalWithoutTax?.() ?? 0
+        );
+        if (subtotalFromOrder <= 0) {
+            return 0;
+        }
+
+        const tipSubtotal = this.getTipLines(activeOrder).reduce((acc, line) => acc + getLineSubtotalWithoutTax(line), 0);
+        return Math.max(0, subtotalFromOrder - tipSubtotal);
     },
 
     getExpectedServiceAmount(order = null) {
