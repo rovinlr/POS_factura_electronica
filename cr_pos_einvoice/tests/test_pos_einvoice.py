@@ -1572,6 +1572,27 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(order.cr_other_charges_json)
         self.assertEqual(order.cr_other_charges_amount, 10.0)
 
+    def test_normalize_other_charges_accepts_cr_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+
+        charges = order._cr_normalize_other_charges(
+            [
+                {
+                    "type": "01",
+                    "code": "06",
+                    "amount": 1000.0,
+                    "currency": "CRC",
+                    "description": "Imp. Serv 10%",
+                    "percent": 10.0,
+                    "cr_is_other_charge_line": True,
+                }
+            ]
+        )
+
+        self.assertEqual(len(charges), 1)
+        self.assertTrue(charges[0]["fp_is_other_charge_line"])
+        self.assertTrue(charges[0]["cr_is_other_charge_line"])
+
     def test_build_payload_guesses_tip_line_without_tip_product_config(self):
         company = self.env.company
         pricelist = self.env["product.pricelist"].search(

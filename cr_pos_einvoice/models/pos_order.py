@@ -2129,6 +2129,7 @@ class PosOrder(models.Model):
                 continue
             if amount <= 0:
                 continue
+            is_other_charge_line = bool(charge.get("fp_is_other_charge_line") or charge.get("cr_is_other_charge_line"))
             normalized.append(
                 {
                     "type": str(charge.get("type") or charge.get("tipo") or charge.get("charge_type") or "01"),
@@ -2137,7 +2138,8 @@ class PosOrder(models.Model):
                     "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
                     "description": str(charge.get("description") or charge.get("detalle") or "Impuesto de servicio 10%"),
                     "percent": charge.get("percent", charge.get("porcentaje")) or 10,
-                    "fp_is_other_charge_line": bool(charge.get("fp_is_other_charge_line")),
+                    "fp_is_other_charge_line": is_other_charge_line,
+                    "cr_is_other_charge_line": is_other_charge_line,
                 }
             )
         return normalized
