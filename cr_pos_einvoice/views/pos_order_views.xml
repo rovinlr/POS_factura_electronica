@@ -96,6 +96,9 @@
             <xpath expr="//field[@name='amount_total']" position="before">
                 <field name="cr_other_charges_amount" readonly="1"/>
             </xpath>
+            <xpath expr="//field[@name='lines']/list/field[@name='price_unit']" position="after">
+                <field name="cr_is_other_charge_line" optional="hide"/>
+            </xpath>
         </field>
     </record>
 </odoo>

@@ -311,6 +311,33 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(values.get("cr_fe_reference_code"), "01")
         self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
 
+    def test_is_other_charge_line_payload_accepts_cr_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        self.assertTrue(order._cr_is_other_charge_line_payload({"cr_is_other_charge_line": True}))
+
+    def test_extract_other_charge_from_ui_lines_uses_configured_percent(self):
+        config = self.env["pos.config"].create(
+            {
+                "name": "POS FE OC Test",
+                "company_id": self.env.company.id,
+                "cr_service_charge_percent": 10.0,
+            }
+        )
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "config_id": config.id})
+        payload = {
+            "currency": "CRC",
+            "lines": [
+                [0, 0, {"price_subtotal": 584.0, "cr_is_other_charge_line": True}],
+            ],
+        }
+
+        other_charge = order._cr_extract_other_charge_from_ui_lines(payload, subtotal=6424.0)
+
+        self.assertEqual(other_charge["code"], "06")
+        self.assertEqual(other_charge["description"], "Imp. Serv 10%")
+        self.assertEqual(other_charge["percent"], 10.0)
+        self.assertEqual(other_charge["amount"], 584.0)
+
     def test_should_send_accepted_email_for_fe_te_nc_with_customer_email(self):
         partner = self.env["res.partner"].create({"name": "Cliente POS", "email": "cliente@example.com"})
         config = self.env["pos.config"].new(
