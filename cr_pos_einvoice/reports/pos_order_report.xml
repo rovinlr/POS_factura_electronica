@@ -222,6 +222,7 @@
                             </colgroup>
                             <thead>
                                 <tr>
+                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Producto</th>
                                     <th class="txt-right" style="text-align:right;">Cant.</th>
                                     <th class="txt-left" style="text-align:left; padding-left:1mm;">Producto</th>
                                     <th class="txt-right" style="text-align:right;">Importe</th>
