@@ -218,6 +218,68 @@ class TestPosEInvoice(TransactionCase):
         self.assertTrue(synced)
         self.assertEqual(order.company_id.fp_consecutive_fe, "44")
 
+    def test_marked_other_charge_line_overrides_stale_json_payload(self):
+        company = self.env.company
+        currency = company.currency_id
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", currency.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test OC", "currency_id": currency.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Servicio marcado otros cargos",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 1000.0,
+            }
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "cr_other_charges_json": json.dumps(
+                    [
+                        {
+                            "type": "01",
+                            "code": "06",
+                            "amount": 684.0,
+                            "currency": "CRC",
+                            "description": "Imp. Serv 10%",
+                            "percent": 10.0,
+                        }
+                    ]
+                ),
+                "lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": product.id,
+                            "qty": 1.0,
+                            "price_unit": 1000.0,
+                            "discount": 0.0,
+                            "price_subtotal": 1000.0,
+                            "price_subtotal_incl": 1000.0,
+                            "product_uom_id": uom_unit.id,
+                            "cr_is_other_charge_line": True,
+                        },
+                    )
+                ],
+            }
+        )
+
+        payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertAlmostEqual(payload[0]["amount"], 1000.0)
+
     def test_build_refund_reference_values_sets_reference_fields_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
         origin_order = self.env["pos.order"].new(
