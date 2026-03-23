@@ -167,7 +167,12 @@ patch(PaymentScreen.prototype, {
     },
 
     hasMatchingOtherCharge(order, expectedAmount) {
-        const charges = order?.getOtherCharges?.() || order?.cr_other_charges || [];
+        const charges =
+            order?.getOtherCharges?.() ||
+            order?.cr_other_charges ||
+            order?.other_charges ||
+            order?.data?.other_charges ||
+            [];
         if (!Array.isArray(charges) || !charges.length) {
             return false;
         }
@@ -179,11 +184,11 @@ patch(PaymentScreen.prototype, {
     },
 
     applyServiceChargeAsOtherChargeCompat(order, expectedAmount) {
-        if (!order || expectedAmount <= 0 || !order?.setOtherCharges) {
+        if (!order || expectedAmount <= 0) {
             return false;
         }
         const percent = this.getServiceChargePercent();
-        order.setOtherCharges([
+        const charges = [
             {
                 type: "01",
                 code: "06",
@@ -192,7 +197,21 @@ patch(PaymentScreen.prototype, {
                 currency: this.pos?.currency?.name || "CRC",
                 description: _t("Impuesto de servicio %s%%", percent),
             },
-        ]);
+        ];
+        if (order?.setOtherCharges) {
+            order.setOtherCharges(charges);
+        } else {
+            // Compatibilidad con variantes de POS donde la API extendida aún no está parcheada.
+            order.cr_other_charges = charges;
+            order.other_charges = charges;
+            if (order?.data && typeof order.data === "object") {
+                order.data.other_charges = charges;
+            }
+            order.lastOrderChange = Date.now();
+            order.updateLastOrderChange?.();
+            order.trigger?.("change", order);
+            order._trigger?.("change", order);
+        }
         return this.hasMatchingOtherCharge(order, expectedAmount);
     },
 
