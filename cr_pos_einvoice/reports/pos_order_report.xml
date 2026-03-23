@@ -179,28 +179,38 @@
                         <t t-set="partner_address" t-value="o.partner_id and o.partner_id._display_address(without_company=True)"/>
                         <t t-set="partner_phone" t-value="o._cr_get_partner_phone(o.partner_id)"/>
 
-                        <div class="cr-ticket-center" style="text-align:center;">
-                            <h4 class="cr-ticket-title"><span t-esc="o.company_id.name"/></h4>
-                            <p class="cr-ticket-line" t-if="o.company_id.vat"><span class="cr-ticket-label">Identificación: </span><span t-esc="o.company_id.vat"/></p>
-                            <p class="cr-ticket-line" t-if="company_email"><span class="cr-ticket-label">Correo: </span><span t-esc="company_email"/></p>
-                            <p class="cr-ticket-line" t-if="company_phone"><span class="cr-ticket-label">Teléfono: </span><span t-esc="company_phone"/></p>
-                            <p class="cr-ticket-line" t-if="company_address"><span class="cr-ticket-label">Dirección: </span><span t-esc="(company_address or '').replace('\n', ' ').strip()"/></p>
+                        <div class="cr-ticket-center" style="text-align:center; line-height:1.28;">
+                            <h4 class="cr-ticket-title" style="margin:0; font-size:12px; font-weight:700; line-height:1.2; white-space:normal; word-break:break-word;">
+                                <span t-esc="o.company_id.name"/>
+                            </h4>
+                            <p class="cr-ticket-line" t-if="o.company_id.vat" style="margin:0; padding:0;">
+                                <span class="cr-ticket-label" style="font-weight:700;">Identificación: </span><span t-esc="o.company_id.vat"/>
+                            </p>
+                            <p class="cr-ticket-line" t-if="company_email" style="margin:0; padding:0;">
+                                <span class="cr-ticket-label" style="font-weight:700;">Correo: </span><span t-esc="company_email"/>
+                            </p>
+                            <p class="cr-ticket-line" t-if="company_phone" style="margin:0; padding:0;">
+                                <span class="cr-ticket-label" style="font-weight:700;">Teléfono: </span><span t-esc="company_phone"/>
+                            </p>
+                            <p class="cr-ticket-line" t-if="company_address" style="margin:0; padding:0;">
+                                <span class="cr-ticket-label" style="font-weight:700;">Dirección: </span><span t-esc="(company_address or '').replace('\n', ' ').strip()"/>
+                            </p>
                         </div>
 
-                        <div class="cr-ticket-block">
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Documento: </span><span t-esc="doc_type_label"/></p>
-                            <p class="cr-ticket-line" t-if="o.cr_fe_consecutivo"><span class="cr-ticket-label">Consecutivo: </span><span t-esc="o.cr_fe_consecutivo"/></p>
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Orden: </span><span t-esc="o.name or o.pos_reference"/></p>
-                            <p class="cr-ticket-line" t-if="o.date_order"><span class="cr-ticket-label">Fecha: </span><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></p>
+                        <div class="cr-ticket-block" style="margin-top:2mm; line-height:1.28;">
+                            <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Documento: </span><span t-esc="doc_type_label"/></p>
+                            <p class="cr-ticket-line" t-if="o.cr_fe_consecutivo" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Consecutivo: </span><span t-esc="o.cr_fe_consecutivo"/></p>
+                            <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Orden: </span><span t-esc="o.name or o.pos_reference"/></p>
+                            <p class="cr-ticket-line" t-if="o.date_order" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Fecha: </span><span t-field="o.date_order" t-options='{"widget": "datetime"}'/></p>
                         </div>
 
-                        <div class="cr-ticket-block">
-                            <p class="cr-ticket-line cr-ticket-label">Datos del cliente</p>
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Nombre: </span><span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/></p>
-                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.vat"><span class="cr-ticket-label">Identificación: </span><span t-esc="o.partner_id.vat"/></p>
-                            <p class="cr-ticket-line" t-if="partner_phone"><span class="cr-ticket-label">Teléfono: </span><span t-esc="partner_phone"/></p>
-                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.email"><span class="cr-ticket-label">Correo: </span><span t-esc="o.partner_id.email"/></p>
-                            <p class="cr-ticket-line" t-if="partner_address"><span class="cr-ticket-label">Dirección: </span><span t-esc="(partner_address or '').replace('\n', ' ').strip()"/></p>
+                        <div class="cr-ticket-block" style="margin-top:2mm; line-height:1.28;">
+                            <p class="cr-ticket-line cr-ticket-label" style="margin:0; padding:0; font-weight:700;">Datos del cliente</p>
+                            <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Nombre: </span><span t-esc="o.partner_id.display_name if o.partner_id else 'Consumidor Final'"/></p>
+                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.vat" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Identificación: </span><span t-esc="o.partner_id.vat"/></p>
+                            <p class="cr-ticket-line" t-if="partner_phone" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Teléfono: </span><span t-esc="partner_phone"/></p>
+                            <p class="cr-ticket-line" t-if="o.partner_id and o.partner_id.email" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Correo: </span><span t-esc="o.partner_id.email"/></p>
+                            <p class="cr-ticket-line" t-if="partner_address" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Dirección: </span><span t-esc="(partner_address or '').replace('\n', ' ').strip()"/></p>
                         </div>
 
                         <table class="cr-ticket-lines" aria-label="Detalle de productos" style="width:100%; border-collapse:collapse; table-layout:auto;">
@@ -211,8 +221,8 @@
                             </colgroup>
                             <thead>
                                 <tr>
+                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Producto</th>
                                     <th class="txt-right" style="text-align:right;">Cant.</th>
-                                    <th class="txt-left" style="text-align:left; padding-left:1mm;">Detalle</th>
                                     <th class="txt-right" style="text-align:right;">Subtotal</th>
                                 </tr>
                             </thead>
@@ -250,7 +260,7 @@
                         </table>
 
                         <div t-if="o.cr_fe_clave" class="cr-ticket-footer">
-                            <p class="cr-ticket-line"><span class="cr-ticket-label">Clave: </span><span t-esc="o.cr_fe_clave"/></p>
+                            <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Clave: </span><span t-esc="o.cr_fe_clave"/></p>
                             <div class="cr-ticket-small">
                                 <div>Autorizado mediante la resolución MH-DGT-RES-0027-2024 del 19/11/2024</div>
                                 <div>Versión XML 4.4</div>
