@@ -1858,7 +1858,10 @@ class PosOrder(models.Model):
         service_flag = payload.get("service_charge_10") or payload.get("service_charge")
         if isinstance(service_flag, str):
             service_flag = service_flag.strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
-        computed_service_charge = self._cr_build_service_charge(subtotal) if service_flag else {}
+        computed_service_charge = self._cr_build_service_charge(
+            subtotal,
+            percent=self._cr_get_service_charge_percent(),
+        ) if service_flag else {}
         if computed_service_charge:
             return [computed_service_charge]
         return []
@@ -1986,8 +1989,17 @@ class PosOrder(models.Model):
         return subtotal if subtotal > 0 else 0.0
 
     @api.model
-    def _cr_build_service_charge(self, subtotal):
-        amount = self._cr_calculate_service_charge_amount(subtotal)
+    def _cr_build_service_charge(self, subtotal, percent=None):
+        service_percent = self._cr_get_service_charge_percent()
+        if percent not in (False, None, ""):
+            try:
+                service_percent = float(percent)
+            except (TypeError, ValueError):
+                service_percent = self._cr_get_service_charge_percent()
+        if service_percent <= 0:
+            service_percent = 10.0
+
+        amount = self._cr_calculate_service_charge_amount(subtotal, percent=service_percent)
         if amount <= 0:
             return {}
         return {
@@ -1995,19 +2007,28 @@ class PosOrder(models.Model):
             "code": "06",
             "amount": amount,
             "currency": "CRC",
-            "description": "Impuesto de servicio 10%",
-            "percent": 10,
+            "description": f"Imp. Serv {service_percent:g}%",
+            "percent": service_percent,
         }
 
     @api.model
-    def _cr_calculate_service_charge_amount(self, subtotal):
+    def _cr_calculate_service_charge_amount(self, subtotal, percent=None):
         try:
             base = float(subtotal or 0.0)
         except (TypeError, ValueError):
             return 0.0
         if base <= 0:
             return 0.0
-        return round(base * 0.10, 5)
+
+        service_percent = self._cr_get_service_charge_percent()
+        if percent not in (False, None, ""):
+            try:
+                service_percent = float(percent)
+            except (TypeError, ValueError):
+                service_percent = self._cr_get_service_charge_percent()
+        if service_percent <= 0:
+            service_percent = 10.0
+        return round(base * (service_percent / 100.0), 5)
 
     @api.model
     def _cr_extract_refund_reference_from_ui(self, ui_order):
@@ -2119,7 +2140,10 @@ class PosOrder(models.Model):
             charge_code = str(charge.get("code") or charge.get("codigo") or "")
             if charge_code and charge_code != "06":
                 continue
-            service_charge = self._cr_build_service_charge(subtotal)
+            service_charge = self._cr_build_service_charge(
+                subtotal,
+                percent=charge.get("percent", charge.get("porcentaje")),
+            )
             amount = charge.get("amount", charge.get("monto"))
             if amount in (False, None, "") and service_charge:
                 amount = service_charge["amount"]
@@ -2129,6 +2153,13 @@ class PosOrder(models.Model):
                 continue
             if amount <= 0:
                 continue
+            raw_percent = charge.get("percent", charge.get("porcentaje"))
+            if raw_percent in (False, None, ""):
+                raw_percent = service_charge.get("percent") or 10
+            try:
+                normalized_percent = float(raw_percent)
+            except (TypeError, ValueError):
+                normalized_percent = float(service_charge.get("percent") or 10)
             is_other_charge_line = bool(charge.get("fp_is_other_charge_line") or charge.get("cr_is_other_charge_line"))
             normalized.append(
                 {
@@ -2136,8 +2167,8 @@ class PosOrder(models.Model):
                     "code": "06",
                     "amount": round(amount, 5),
                     "currency": str(charge.get("currency") or charge.get("moneda") or "CRC"),
-                    "description": str(charge.get("description") or charge.get("detalle") or "Impuesto de servicio 10%"),
-                    "percent": charge.get("percent", charge.get("porcentaje")) or 10,
+                    "description": str(charge.get("description") or charge.get("detalle") or service_charge.get("description") or "Imp. Serv 10%"),
+                    "percent": normalized_percent,
                     "fp_is_other_charge_line": is_other_charge_line,
                     "cr_is_other_charge_line": is_other_charge_line,
                 }
@@ -2183,6 +2214,10 @@ class PosOrder(models.Model):
             "other_charge_amount",
             "fp_other_charge_amount",
             "l10n_cr_other_charge_amount",
+            "tip_amount",
+            "amount_tip",
+            "cr_tip_amount",
+            "tip",
         ):
             if field_name not in self._fields:
                 continue
