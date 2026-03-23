@@ -262,6 +262,13 @@
                         </table>
                         <div style="height:1.2mm;"></div>
 
+                        <div t-if="other_charges_amount" class="cr-ticket-block" style="margin-top:0.8mm; line-height:1.25;">
+                            <p class="cr-ticket-line" style="margin:0; padding:0;">
+                                <span class="cr-ticket-label" style="font-weight:700;">Otros cargos: </span>
+                                <span t-esc="other_charges_amount" t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </p>
+                        </div>
+
                         <div t-if="o.cr_fe_clave" class="cr-ticket-footer">
                             <p class="cr-ticket-line" style="margin:0; padding:0;"><span class="cr-ticket-label" style="font-weight:700;">Clave: </span><span t-esc="o.cr_fe_clave"/></p>
                             <div class="cr-ticket-small">
