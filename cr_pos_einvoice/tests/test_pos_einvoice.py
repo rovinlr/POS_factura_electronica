@@ -1448,3 +1448,33 @@ class TestPosEInvoice(TransactionCase):
         self.assertEqual(payload["other_charges"][0]["code"], "06")
         self.assertEqual(payload["other_charges"][0]["amount"], 10.0)
         self.assertEqual(payload["other_charges"][0]["percent"], 10.0)
+
+    def test_sync_other_charges_from_tip_lines_persists_json_for_reporting(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create({"name": "Base Sync", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0})
+        tip_product = self.env["product.product"].create({"name": "Propina Sync", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0})
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product):
+            order._cr_sync_other_charges_from_tip_lines()
+
+        self.assertTrue(order.cr_other_charges_json)
+        self.assertEqual(order.cr_other_charges_amount, 10.0)
