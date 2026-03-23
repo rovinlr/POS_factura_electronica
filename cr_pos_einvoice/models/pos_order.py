@@ -182,10 +182,16 @@ class PosOrder(models.Model):
             else:
                 order.cr_fe_document_type = False
 
-    @api.depends("cr_other_charges_json")
+    @api.depends(
+        "cr_other_charges_json",
+        "lines.price_subtotal",
+        "lines.product_id",
+        "config_id",
+        "session_id.config_id",
+    )
     def _compute_cr_other_charges_amount(self):
         for order in self:
-            charges = order._cr_normalize_other_charges(order.cr_other_charges_json)
+            charges = order._cr_get_other_charges_payload()
             order.cr_other_charges_amount = sum(float(charge.get("amount") or 0.0) for charge in charges)
 
     @api.depends("lines.price_subtotal", "lines.tax_ids_after_fiscal_position")
@@ -2019,7 +2025,71 @@ class PosOrder(models.Model):
 
     def _cr_get_other_charges_payload(self):
         self.ensure_one()
-        return self._cr_normalize_other_charges(self.cr_other_charges_json)
+        explicit_charges = self._cr_normalize_other_charges(self.cr_other_charges_json)
+        if explicit_charges:
+            return explicit_charges
+        tip_charge = self._cr_build_service_charge_from_tip_lines()
+        return [tip_charge] if tip_charge else []
+
+    def _cr_get_tip_product(self):
+        self.ensure_one()
+        config = self.config_id or self.session_id.config_id
+        if not config:
+            return self.env["product.product"]
+        for field_name in ("pos_tip_product_id", "tip_product_id"):
+            if field_name in config._fields and config[field_name]:
+                return config[field_name]
+        return self.env["product.product"]
+
+    def _cr_is_tip_line(self, line, tip_product=False):
+        """Centralized predicate to detect native/custom POS tip lines safely."""
+        if not line:
+            return False
+        if not tip_product:
+            tip_product = self._cr_get_tip_product()
+        if tip_product and line.product_id == tip_product:
+            return True
+        # Compatibility with custom POS modules that annotate line flags.
+        for marker in ("is_tip", "is_tip_line", "cr_is_tip_line"):
+            if marker in line._fields and line[marker]:
+                return True
+        return False
+
+    def _cr_get_tip_line_ids(self):
+        self.ensure_one()
+        tip_product = self._cr_get_tip_product()
+        return {line.id for line in self.lines if self._cr_is_tip_line(line, tip_product=tip_product)}
+
+    def _cr_build_service_charge_from_tip_lines(self):
+        """Derive FE OtrosCargos code 06 from native Odoo POS tip lines.
+
+        This keeps native POS tip UX (including the Propina button) while sending
+        the service amount as `OtrosCargos` instead of `DetalleServicio`.
+        """
+        self.ensure_one()
+        tip_line_ids = self._cr_get_tip_line_ids()
+        if not tip_line_ids:
+            return {}
+
+        tip_amount = sum(line.price_subtotal or 0.0 for line in self.lines if line.id in tip_line_ids)
+        if tip_amount <= 0:
+            return {}
+
+        base_subtotal = sum(
+            line.price_subtotal or 0.0
+            for line in self.lines
+            if line.id not in tip_line_ids and (line.price_subtotal or 0.0) > 0
+        )
+        percent = round((tip_amount / base_subtotal) * 100, 5) if base_subtotal > 0 else 10.0
+        percent_display = f"{percent:.5f}".rstrip("0").rstrip(".")
+        return {
+            "type": "01",
+            "code": "06",
+            "amount": round(tip_amount, 5),
+            "currency": str(self.currency_id.name or "CRC"),
+            "description": f"Imp. Serv {percent_display}%",
+            "percent": percent,
+        }
 
     def action_pos_order_paid(self):
         """Trigger FE flow when the order is validated from backend POS forms.
@@ -2537,7 +2607,18 @@ class PosOrder(models.Model):
         }
 
     def _cr_process_after_payment(self):
+        self._cr_sync_other_charges_from_tip_lines()
         self._cr_dispatch_einvoice_flow()
+
+    def _cr_sync_other_charges_from_tip_lines(self):
+        """Persist derived OtrosCargos from tip product for reporting/audit fields."""
+        for order in self:
+            if order.cr_other_charges_json:
+                continue
+            tip_charge = order._cr_build_service_charge_from_tip_lines()
+            if not tip_charge:
+                continue
+            order.cr_other_charges_json = json.dumps([tip_charge])
 
     def _cr_dispatch_einvoice_flow(self):
         for order in self:
@@ -2728,8 +2809,13 @@ class PosOrder(models.Model):
 
     def _cr_build_pos_payload(self, consecutivo, clave, document_type):
         self.ensure_one()
+        tip_line_ids = self._cr_get_tip_line_ids()
         lines = []
         for line in self.lines:
+            if line.id in tip_line_ids:
+                # FE CR v4.4: native tip product line must be represented in
+                # `OtrosCargos` (code 06), not in `DetalleServicio`.
+                continue
             taxes = line.tax_ids_after_fiscal_position.compute_all(
                 line.price_unit,
                 currency=self.pricelist_id.currency_id,
