@@ -8,6 +8,11 @@
             <xpath expr="//sheet" position="inside">
                 <group string="Factura electrónica (CR)">
                     <field name="cr_fe_enabled"/>
+                    <field name="cr_tip_product_id"/>
+                    <field name="cr_service_charge_percent"/>
+                    <field name="cr_fe_use_pos_flow_for_invoiced_orders" invisible="not cr_fe_enabled"/>
+                    <field name="cr_fe_auto_send_on_reference" invisible="not cr_fe_enabled"/>
+                    <field name="cr_fe_auto_email_accepted_docs" invisible="not cr_fe_enabled"/>
                     <field name="fp_economic_activity_id"/>
                 </group>
             </xpath>

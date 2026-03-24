@@ -1,12 +1,19 @@
 /* CR POS FE receipt layout.
    Why: keeps spacing readable in narrow thermal printers. */
-.cr-fe-receipt { font-size: 12px; line-height: 1.25; }
+.cr-fe-receipt { font-size: 13px; line-height: 1.3; }
 .cr-center { text-align: center; }
 .cr-right { text-align: right; }
 .cr-header { padding: 4px 0; }
 .cr-company-name { font-weight: 700; font-size: 14px; word-break: break-word; }
 .cr-doc-type { font-weight: 700; font-size: 13px; text-transform: uppercase; }
-.cr-small { font-size: 11px; opacity: 0.95; }
+.cr-small { font-size: 12px; opacity: 0.95; }
+
+.cr-fe-doc-header { margin-bottom: 2px; font-size: 15px; line-height: 1.28; }
+.cr-fe-doc-header .cr-fe-doc-type { font-size: 16px; font-weight: 700; line-height: 1.2; }
+.cr-fe-doc-header .cr-fe-consecutivo { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; }
+
+.cr-fe-extra .cr-small { font-size: 13px; line-height: 1.35; opacity: 1; }
+.cr-fe-extra .cr-title { font-size: 14px; margin-bottom: 3px; }
 .cr-doc-type { font-weight: 700; font-size: 13px; text-transform: uppercase; }
 .cr-divider { border-top: 1px dashed #000; margin: 6px 0; }
 .cr-title { font-weight: 700; margin-bottom: 2px; }
@@ -32,3 +39,72 @@
 .cr-lines-row { padding: 2px 0; }
 .cr-col-desc { width: 58%; word-break: break-word; overflow-wrap: anywhere; }
 .cr-col-amt { width: 30%; white-space: nowrap; }
+.cr-col-price-head { width: 16%; white-space: nowrap; }
+.cr-col-tax-head { width: 10%; white-space: nowrap; }
+
+
+.cr-product-lines-head { display: flex; gap: 4px; font-weight: 700; border-bottom: 1px solid #000; padding: 2px 0 3px; margin-bottom: 2px; }
+.cr-product-col-qty { width: 12%; }
+.cr-product-col-name { width: 70%; word-break: break-word; overflow-wrap: anywhere; }
+.cr-product-col-total { width: 18%; text-align: right; white-space: nowrap; }
+
+.cr-company-block,
+.cr-customer-data,
+.cr-order-meta,
+.cr-legal-footer {
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.cr-company-block .cr-company-name {
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+
+.cr-company-block div,
+.cr-customer-data div,
+.cr-order-meta div,
+.cr-legal-footer div {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.cr-customer-data .cr-title {
+    font-size: 15px;
+    margin-bottom: 2px;
+}
+
+.cr-legal-footer {
+    margin-top: 8px;
+}
+
+.cr-totals-right {
+    text-align: right;
+}
+
+.cr-totals-right > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cr-rate-summary {
+    border-top: 1px solid #d6d6d6;
+    margin-top: 6px;
+    padding-top: 6px;
+}
+
+.cr-rate-summary-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.cr-rate-summary-line .cr-rate-label {
+    font-weight: 600;
+}
+
+.cr-rate-summary-line .cr-rate-values {
+    text-align: right;
+    white-space: nowrap;
+}

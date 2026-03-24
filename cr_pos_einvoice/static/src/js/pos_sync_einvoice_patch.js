@@ -3,147 +3,153 @@
 import { patch } from "@web/core/utils/patch";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 
-const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
-
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const normalizeText = (value) => {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text || null;
+};
 
-const isSameOrder = (order, row) => {
-    const orderServerId = firstDefined(order.server_id, order.backendId, order.id);
-    const rowServerId = firstDefined(row.id, row.server_id, row.backendId);
-    const orderReference = firstDefined(
-        order.name,
-        order.pos_reference,
-        order.uid,
-        order.uuid,
-        order.reference
+const normalizeDocumentType = (value) => {
+    const text = normalizeText(value);
+    if (!text) return null;
+    const normalized = text.toLowerCase();
+    const mapping = { te: "te", fe: "fe", nc: "nc" };
+    return mapping[normalized] || normalized;
+};
+
+const hasRequiredFeData = (order) => {
+    return Boolean(
+        normalizeDocumentType(order?.cr_fe_document_type) &&
+            normalizeText(order?.cr_fe_consecutivo) &&
+            normalizeText(order?.cr_fe_clave)
     );
-    const rowReference = firstDefined(row.pos_reference, row.name, row.uid, row.reference);
-
-    if (orderServerId && rowServerId) {
-        return Number(orderServerId) === Number(rowServerId);
-    }
-    if (orderReference && rowReference) {
-        return String(orderReference) === String(rowReference);
-    }
-    return false;
 };
 
-const applyFeFields = (order, row) => {
-    const values = {
-        cr_fe_document_type: firstDefined(row.cr_fe_document_type, order.cr_fe_document_type),
-        cr_fe_consecutivo: firstDefined(row.cr_fe_consecutivo, order.cr_fe_consecutivo),
-        cr_fe_clave: firstDefined(row.cr_fe_clave, order.cr_fe_clave),
-        cr_fe_status: firstDefined(row.cr_fe_status, order.cr_fe_status),
-        fp_payment_method: firstDefined(row.fp_payment_method, order.fp_payment_method),
-    };
+const applyFeFields = (order, payload) => {
+    if (!order || !payload) return false;
 
-    Object.assign(order, values);
+    const docType = normalizeDocumentType(payload.cr_fe_document_type ?? payload.document_type);
+    if (docType) order.cr_fe_document_type = docType;
+
+    const consecutivo = normalizeText(payload.cr_fe_consecutivo ?? payload.consecutivo);
+    if (consecutivo) order.cr_fe_consecutivo = consecutivo;
+
+    const clave = normalizeText(payload.cr_fe_clave ?? payload.clave);
+    if (clave) order.cr_fe_clave = clave;
+
+    const status = normalizeText(payload.cr_fe_status ?? payload.status);
+    if (status) order.cr_fe_status = status;
+
+    const paymentMethod = normalizeText(payload.fp_payment_method ?? payload.payment_method);
+    if (paymentMethod) order.fp_payment_method = paymentMethod;
+    const emisorName = normalizeText(payload.cr_fe_emisor_name);
+    if (emisorName) order.cr_fe_emisor_name = emisorName;
+    const emisorVat = normalizeText(payload.cr_fe_emisor_vat);
+    if (emisorVat) order.cr_fe_emisor_vat = emisorVat;
+    const emisorEmail = normalizeText(payload.cr_fe_emisor_email);
+    if (emisorEmail) order.cr_fe_emisor_email = emisorEmail;
+    const emisorPhone = normalizeText(payload.cr_fe_emisor_phone);
+    if (emisorPhone) order.cr_fe_emisor_phone = emisorPhone;
+    const emisorAddress = normalizeText(payload.cr_fe_emisor_address);
+    if (emisorAddress) order.cr_fe_emisor_address = emisorAddress;
+
+    const receptorName = normalizeText(payload.cr_fe_receptor_name);
+    if (receptorName) order.cr_fe_receptor_name = receptorName;
+    const receptorVat = normalizeText(payload.cr_fe_receptor_vat);
+    if (receptorVat) order.cr_fe_receptor_vat = receptorVat;
+    const receptorEmail = normalizeText(payload.cr_fe_receptor_email);
+    if (receptorEmail) order.cr_fe_receptor_email = receptorEmail;
+    const receptorPhone = normalizeText(payload.cr_fe_receptor_phone);
+    if (receptorPhone) order.cr_fe_receptor_phone = receptorPhone;
+    const receptorAddress = normalizeText(payload.cr_fe_receptor_address);
+    if (receptorAddress) order.cr_fe_receptor_address = receptorAddress;
+
+    // NC references (optional)
+    order.cr_fe_reference_document_type = normalizeText(payload.cr_fe_reference_document_type) ?? order.cr_fe_reference_document_type;
+    order.cr_fe_reference_document_number = normalizeText(payload.cr_fe_reference_document_number) ?? order.cr_fe_reference_document_number;
+    order.cr_fe_reference_issue_date = payload.cr_fe_reference_issue_date ?? order.cr_fe_reference_issue_date;
+    order.cr_fe_reference_code = normalizeText(payload.cr_fe_reference_code) ?? order.cr_fe_reference_code;
+    order.cr_fe_reference_reason = normalizeText(payload.cr_fe_reference_reason) ?? order.cr_fe_reference_reason;
+
+    return true;
 };
 
-const hasRequiredFeData = (values) => Boolean(values?.cr_fe_consecutivo && values?.cr_fe_clave);
-
-const isReceiptScreen = (screen) => {
-    if (!screen) {
-        return false;
-    }
-    if (typeof screen === "string") {
-        return screen === "ReceiptScreen";
-    }
-    return firstDefined(screen.name, screen.component?.name, screen.constructor?.name) === "ReceiptScreen";
+const getOrderLookupRefs = (order) => {
+    const refs = [];
+    const posRef = normalizeText(order?.pos_reference);
+    const name = normalizeText(order?.name);
+    if (posRef) refs.push(posRef);
+    if (name && name !== posRef) refs.push(name);
+    return refs;
 };
 
-const needsFeWait = (values) => {
-    const documentType = firstDefined(values?.cr_fe_document_type, values?.document_type);
-    if (!documentType) {
-        return false;
+const findOrderInStore = (store, routeParams) => {
+    const uuid = routeParams?.orderUuid || routeParams?.order_uuid;
+    if (uuid) {
+        const byUuid = store.models?.["pos.order"]?.find?.((o) => o.uuid === uuid);
+        if (byUuid) return byUuid;
     }
-    return !hasRequiredFeData(values);
+    return store.getOrder?.() || store.selectedOrder || null;
 };
-
-const getOrmService = (store) =>
-    firstDefined(store.orm, store.env?.services?.orm, store.pos?.env?.services?.orm, store.data?.orm);
 
 patch(PosStore.prototype, {
-    async _crWaitForFeFields(order, row, options = {}) {
-        const orm = getOrmService(this);
-        if (!orm || !orm.call) {
-            return false;
-        }
-
-        const timeoutMs = options.timeoutMs || 12000;
-        const intervalMs = options.intervalMs || 700;
-        const startedAt = Date.now();
-        const orderId = firstDefined(row?.id, row?.server_id, row?.backendId, order?.server_id, order?.id);
-        const orderRef = firstDefined(row?.pos_reference, row?.name, order?.name, order?.pos_reference, order?.uid);
-
-        while (Date.now() - startedAt < timeoutMs) {
-            const domain = orderId
-                ? [["id", "=", Number(orderId)]]
-                : orderRef
-                  ? [["pos_reference", "=", String(orderRef)]]
-                  : [];
-            if (!domain.length) {
-                return false;
-            }
-
-            const [result] = await orm.call(
-                "pos.order",
-                "search_read",
-                [domain, ["id", "pos_reference", "cr_fe_document_type", "cr_fe_consecutivo", "cr_fe_clave", "cr_fe_status", "fp_payment_method"]],
-                { limit: 1 }
-            );
-            if (result) {
-                applyFeFields(order, result);
-                if (hasRequiredFeData(result)) {
-                    return true;
-                }
-            }
-            await delay(intervalMs);
-        }
-
-        return false;
-    },
-
-
-    async showScreen(screen, props) {
-        const activeOrder = this.get_order ? this.get_order() : this.selectedOrder;
-        const feEnabled = Boolean(firstDefined(this.config?.cr_fe_enabled, this.pos?.config?.cr_fe_enabled, this.env?.pos?.config?.cr_fe_enabled));
-        if (isReceiptScreen(screen) && activeOrder && (needsFeWait(activeOrder) || (feEnabled && !hasRequiredFeData(activeOrder)))) {
-            try {
-                await this._crWaitForFeFields(activeOrder, activeOrder);
-            } catch (_error) {
-                // Never block screen transitions (tips, receipts) due to FE polling errors.
-            }
-        }
-        if (super.showScreen) {
-            return super.showScreen(...arguments);
-        }
-        return undefined;
-    },
-
-    async postSyncAllOrders() {
+    async postSyncAllOrders(serverOrders) {
         if (super.postSyncAllOrders) {
             await super.postSyncAllOrders(...arguments);
         }
+        if (!Array.isArray(serverOrders) || !this.models?.["pos.order"]) return;
 
-        const rows = arguments[0];
-        if (!Array.isArray(rows) || !rows.length) {
-            return;
+        // serverOrders are already PosOrder instances (connected data); normalize fields for safety.
+        for (const row of serverOrders) {
+            applyFeFields(row, row);
         }
-        const orders = this.models?.["pos.order"]?.getAll?.() || [];
-        if (!orders.length) {
-            return;
-        }
+    },
 
-        for (const row of rows) {
-            const targetOrders = orders.filter((order) => isSameOrder(order, row));
-            for (const order of targetOrders) {
-                applyFeFields(order, row);
-                if (needsFeWait(row) || needsFeWait(order)) {
-                    await this._crWaitForFeFields(order, row);
+    navigate(routeName, routeParams = {}) {
+        const res = super.navigate(...arguments);
+
+        if (routeName !== "ReceiptScreen") return res;
+
+        const order = findOrderInStore(this, routeParams);
+        if (!order || hasRequiredFeData(order)) return res;
+
+        // Do not block navigation; fetch and hydrate FE fields ASAP.
+        (async () => {
+            const orderId = typeof order.id === "number" ? order.id : null;
+            const refs = getOrderLookupRefs(order);
+            try {
+                // Server method signature: (order_id=None, references=None)
+                const payload = await this.data.call(
+                    "pos.order",
+                    "cr_pos_get_order_fe_for_receipt",
+                    [orderId, refs],
+                    { context: this.getSyncAllOrdersContext?.([order]) || {} }
+                );
+                applyFeFields(order, payload);
+            } catch {
+                // Best-effort: do nothing (receipt will show placeholders).
+            }
+
+            // Small retry window for race conditions (e.g., async identifiers).
+            const maxAttempts = 12;
+            for (let i = 0; i < maxAttempts && !hasRequiredFeData(order); i++) {
+                await delay(250);
+                try {
+                    const payload = await this.data.call(
+                        "pos.order",
+                        "cr_pos_get_order_fe_for_receipt",
+                        [orderId, refs],
+                        { context: this.getSyncAllOrdersContext?.([order]) || {} }
+                    );
+                    applyFeFields(order, payload);
+                } catch {
+                    break;
                 }
             }
-        }
+        })();
+
+        return res;
     },
 });

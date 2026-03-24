@@ -1,4 +1,8 @@
+import json
+from types import SimpleNamespace
+
 from odoo import fields
+from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 from unittest.mock import patch
@@ -97,6 +101,84 @@ class TestPosEInvoice(TransactionCase):
         self.assertIn("<Cantidad>2", xml_text)
         self.assertIn("<PrecioUnitario>100", xml_text)
 
+
+    def test_te_xml_sanitizer_removes_codigo_actividad_receptor(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        xml_in = """<TiqueteElectronico xmlns="https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/tiqueteElectronico"><Receptor><Nombre>Cliente general</Nombre><CodigoActividadReceptor>620100</CodigoActividadReceptor></Receptor></TiqueteElectronico>"""
+
+        xml_out = order._cr_sanitize_ticket_receptor_activity(xml_in, document_type="te")
+
+        self.assertNotIn("<CodigoActividadReceptor>", xml_out)
+        self.assertIn("<Nombre>Cliente general</Nombre>", xml_out)
+
+    def test_te_xml_sanitizer_keeps_codigo_actividad_receptor_for_fe(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        xml_in = """<FacturaElectronica xmlns="https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/facturaElectronica"><Receptor><Nombre>Cliente</Nombre><CodigoActividadReceptor>620100</CodigoActividadReceptor></Receptor></FacturaElectronica>"""
+
+        xml_out = order._cr_sanitize_ticket_receptor_activity(xml_in, document_type="fe")
+
+        self.assertIn("<CodigoActividadReceptor>620100</CodigoActividadReceptor>", xml_out)
+
+    def test_report_wizard_domain_uses_configured_tz_boundaries(self):
+        wizard = self.env["pos.order.fe.report.wizard"].with_context(tz="America/Costa_Rica").create(
+            {
+                "date_from": "2026-03-21",
+                "date_to": "2026-03-21",
+                "output_format": "pdf",
+            }
+        )
+
+        domain = wizard._build_report_domain()
+        date_from_rule = next(rule for rule in domain if rule[0] == "date_order" and rule[1] == ">=")
+        date_to_rule = next(rule for rule in domain if rule[0] == "date_order" and rule[1] == "<=")
+
+        self.assertEqual(date_from_rule[2], "2026-03-21 06:00:00")
+        self.assertEqual(date_to_rule[2], "2026-03-22 05:59:59")
+
+    def test_report_wizard_totals_split_other_charges_from_exempt(self):
+        wizard = self.env["pos.order.fe.report.wizard"].create(
+            {
+                "date_from": "2026-03-21",
+                "date_to": "2026-03-21",
+                "output_format": "pdf",
+            }
+        )
+        orders = [
+            SimpleNamespace(
+                cr_fe_document_type="te",
+                amount_total=115.0,
+                cr_exempt_amount=10.0,
+                cr_other_charges_amount=3.0,
+                cr_nonsubject_amount=1.0,
+                cr_exonerated_amount=2.0,
+                cr_taxable_amount_1=11.0,
+                cr_taxable_amount_2=12.0,
+                cr_taxable_amount_4=13.0,
+                cr_taxable_amount_13=14.0,
+                amount_tax=15.0,
+            ),
+            SimpleNamespace(
+                cr_fe_document_type="nc",
+                amount_total=-57.5,
+                cr_exempt_amount=4.0,
+                cr_other_charges_amount=1.0,
+                cr_nonsubject_amount=0.5,
+                cr_exonerated_amount=1.0,
+                cr_taxable_amount_1=5.5,
+                cr_taxable_amount_2=6.0,
+                cr_taxable_amount_4=6.5,
+                cr_taxable_amount_13=7.0,
+                amount_tax=8.0,
+            ),
+        ]
+
+        totals = wizard._get_report_totals(orders)
+
+        self.assertAlmostEqual(totals["exempt"], 4.0)
+        self.assertAlmostEqual(totals["other_charges"], 2.0)
+        self.assertAlmostEqual(totals["tax"], 7.0)
+        self.assertAlmostEqual(totals["total"], 57.5)
+
     def test_sync_last_consecutivo_in_einvoice_config_uses_service_method_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id})
         captured = {}
@@ -125,6 +207,78 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertTrue(synced)
         self.assertEqual(order.company_id.fp_consecutive_fe, "123")
+
+    def test_sync_last_consecutivo_in_einvoice_config_does_not_rollback_company_counter(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        order.company_id.fp_consecutive_fe = "44"
+
+        with patch.object(type(order), "_cr_service", lambda self: False):
+            synced = order._cr_sync_last_consecutivo_in_einvoice_config("te", "00100001040000000042")
+
+        self.assertTrue(synced)
+        self.assertEqual(order.company_id.fp_consecutive_fe, "44")
+
+    def test_marked_other_charge_line_overrides_stale_json_payload(self):
+        company = self.env.company
+        currency = company.currency_id
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", currency.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test OC", "currency_id": currency.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Servicio marcado otros cargos",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 1000.0,
+            }
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "cr_other_charges_json": json.dumps(
+                    [
+                        {
+                            "type": "01",
+                            "code": "06",
+                            "amount": 684.0,
+                            "currency": "CRC",
+                            "description": "Imp. Serv 10%",
+                            "percent": 10.0,
+                        }
+                    ]
+                ),
+                "lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": product.id,
+                            "qty": 1.0,
+                            "price_unit": 1000.0,
+                            "discount": 0.0,
+                            "price_subtotal": 1000.0,
+                            "price_subtotal_incl": 1000.0,
+                            "product_uom_id": uom_unit.id,
+                            "cr_is_other_charge_line": True,
+                        },
+                    )
+                ],
+            }
+        )
+
+        payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertAlmostEqual(payload[0]["amount"], 1000.0)
 
     def test_build_refund_reference_values_sets_reference_fields_when_available(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
@@ -175,6 +329,7 @@ class TestPosEInvoice(TransactionCase):
             "fp_reference_issue_date",
             "fp_reference_document_date",
             "fp_reference_date",
+            "reference_issue_date",
             "reference_document_date",
             "reference_date",
             "reversed_entry_date",
@@ -202,6 +357,13 @@ class TestPosEInvoice(TransactionCase):
             if field_name in move_fields:
                 self.assertEqual(values.get(field_name), "Devolución de mercadería")
 
+    def test_get_pos_document_type_prioritizes_refund_over_to_invoice(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+
+        with patch.object(type(order), "_cr_is_refund_order_candidate", lambda self: True), patch.object(
+            type(order), "_cr_is_marked_for_invoicing", lambda self: True
+        ):
+            self.assertEqual(order._cr_get_pos_document_type(), "nc")
 
     def test_get_origin_invoice_for_refund_uses_origin_ticket_move_when_not_invoiced(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
@@ -213,6 +375,527 @@ class TestPosEInvoice(TransactionCase):
             origin_invoice = order._cr_get_origin_invoice_for_refund()
 
         self.assertEqual(origin_invoice, ticket_move)
+
+    def test_extract_refund_reference_from_ui_uses_origin_fe_order_data(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        ui_order = {
+            "data": {
+                "lines": [
+                    [0, 0, {"refunded_orderline_id": [321, "origin-line"]}],
+                ]
+            }
+        }
+
+        with patch.object(
+            type(self.env["pos.order.line"]),
+            "search_read",
+            lambda *args, **kwargs: [{"id": 321, "order_id": [99, "POS/099"]}],
+        ), patch.object(
+            type(self.env["pos.order"]),
+            "search_read",
+            lambda *args, **kwargs: [
+                {
+                    "cr_fe_document_type": "fe",
+                    "cr_fe_clave": "50621032600310112345600100001010000000001123456789",
+                    "cr_fe_consecutivo": "00100001010000000001",
+                    "date_order": fields.Datetime.from_string("2026-03-20 11:22:33"),
+                    "cr_fe_reference_document_type": False,
+                    "cr_fe_reference_document_number": False,
+                    "cr_fe_reference_issue_date": False,
+                    "cr_fe_reference_code": False,
+                    "cr_fe_reference_reason": False,
+                }
+            ],
+        ):
+            values = order._cr_extract_refund_reference_from_ui(ui_order)
+
+        self.assertEqual(values.get("cr_fe_reference_document_type"), "01")
+        self.assertEqual(
+            values.get("cr_fe_reference_document_number"),
+            "50621032600310112345600100001010000000001123456789",
+        )
+        self.assertEqual(values.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-03-20"))
+        self.assertEqual(values.get("cr_fe_reference_code"), "01")
+        self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+    def test_is_other_charge_line_payload_accepts_cr_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        self.assertTrue(order._cr_is_other_charge_line_payload({"cr_is_other_charge_line": True}))
+
+    def test_pos_order_line_other_charge_flag_autofills_from_product_onchange(self):
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Producto Otros Cargos",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 10.0,
+                "cr_is_other_charge_line": True,
+            }
+        )
+        line = self.env["pos.order.line"].new({"product_id": product.id})
+
+        line._onchange_cr_other_charge_line_from_product()
+
+        self.assertTrue(line.cr_is_other_charge_line)
+
+    def test_pos_order_line_flag_helper_sets_marker_from_product(self):
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Producto Otros Cargos Helper",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 5.0,
+                "cr_is_other_charge_line": True,
+            }
+        )
+        vals = {"product_id": product.id}
+
+        self.env["pos.order.line"]._cr_apply_other_charge_flag_from_product(vals)
+
+        self.assertTrue(vals["cr_is_other_charge_line"])
+
+    def test_extract_other_charge_from_ui_lines_uses_configured_percent(self):
+        config = self.env["pos.config"].create(
+            {
+                "name": "POS FE OC Test",
+                "company_id": self.env.company.id,
+                "cr_service_charge_percent": 10.0,
+            }
+        )
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "config_id": config.id})
+        payload = {
+            "currency": "CRC",
+            "lines": [
+                [0, 0, {"price_subtotal": 584.0, "cr_is_other_charge_line": True}],
+            ],
+        }
+
+        other_charge = order._cr_extract_other_charge_from_ui_lines(payload, subtotal=6424.0)
+
+        self.assertEqual(other_charge["code"], "06")
+        self.assertEqual(other_charge["description"], "Imp. Serv 10%")
+        self.assertEqual(other_charge["percent"], 10.0)
+        self.assertEqual(other_charge["amount"], 584.0)
+
+    def test_should_send_accepted_email_for_fe_te_nc_with_customer_email(self):
+        partner = self.env["res.partner"].create({"name": "Cliente POS", "email": "cliente@example.com"})
+        config = self.env["pos.config"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_enabled": True,
+                "cr_fe_auto_email_accepted_docs": True,
+            }
+        )
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        order.partner_id = partner
+        order.config_id = config
+        order.cr_fe_status = "accepted"
+        order.cr_fe_document_type = "te"
+        order.cr_fe_email_sent = False
+        self.assertTrue(order._cr_should_send_accepted_email())
+
+        order.cr_fe_document_type = "fe"
+        self.assertTrue(order._cr_should_send_accepted_email())
+
+        order.cr_fe_document_type = "nc"
+        order.partner_id.email = False
+        self.assertFalse(order._cr_should_send_accepted_email())
+
+    def test_get_email_attachments_includes_xml_response_and_pdf(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/001"})
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/xml",
+            }
+        )
+        response_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "respuesta.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/xml",
+            }
+        )
+        fake_pdf = self.env["ir.attachment"].create(
+            {
+                "name": "ticket.pdf",
+                "type": "binary",
+                "datas": "JVBERi0xLjQKJQ==",
+                "res_model": "pos.order",
+                "res_id": 0,
+                "mimetype": "application/pdf",
+            }
+        )
+        order.cr_fe_xml_attachment_id = xml_attachment
+        order.cr_fe_response_attachment_id = response_attachment
+
+        with patch.object(type(order), "_cr_get_or_create_pdf_attachment", lambda self: fake_pdf):
+            attachments = order._cr_get_email_attachments()
+
+        self.assertIn(xml_attachment, attachments)
+        self.assertIn(response_attachment, attachments)
+        self.assertIn(fake_pdf, attachments)
+
+    def test_get_or_create_pdf_attachment_for_ticket_without_move_uses_pos_report(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/NOINV/001"})
+
+        class FakePosReport:
+            model = "pos.order"
+
+            def _render_qweb_pdf(self, record_ids):
+                self.record_ids = record_ids
+                return b"%PDF-1.4\n%dummy", "application/pdf"
+
+        fake_report = FakePosReport()
+        with patch.object(type(order), "_cr_get_pdf_report_action", lambda self: fake_report):
+            pdf_attachment = order._cr_get_or_create_pdf_attachment()
+
+        self.assertTrue(pdf_attachment)
+        self.assertEqual(pdf_attachment.mimetype, "application/pdf")
+        self.assertEqual(pdf_attachment.res_model, "pos.order")
+
+    def test_get_or_create_pdf_attachment_supports_qweb_html_report(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "name": "POS/HTML/001"})
+
+        class FakeHtmlReport:
+            model = "pos.order"
+            report_type = "qweb-html"
+
+            def _render_qweb_html(self, record_ids):
+                self.record_ids = record_ids
+                return [b"<html><body>Ticket HTML</body></html>"], "text/html"
+
+        fake_report = FakeHtmlReport()
+        with patch.object(type(order), "_cr_get_pdf_report_action", lambda self: fake_report), patch.object(
+            type(order.env["ir.actions.report"]),
+            "_run_wkhtmltopdf",
+            lambda self, html_bodies, landscape=False, **kwargs: b"%PDF-1.4\n%from-html",
+        ):
+            pdf_attachment = order._cr_get_or_create_pdf_attachment()
+
+        self.assertTrue(pdf_attachment)
+        self.assertEqual(pdf_attachment.mimetype, "application/pdf")
+        self.assertEqual(pdf_attachment.res_model, "pos.order")
+
+    def test_get_email_attachments_prefers_receipt_pdf_when_accepted(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/001",
+                "cr_fe_status": "accepted",
+                "cr_fe_consecutivo": "00100001010000000055",
+            }
+        )
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/xml",
+            }
+        )
+        order.cr_fe_xml_attachment_id = xml_attachment
+
+        with patch.object(type(order), "_cr_render_receipt_pdf_content", lambda self: b"%PDF-mail"):
+            attachments = order._cr_get_email_attachments()
+
+        pdfs = attachments.filtered(lambda a: a.mimetype == "application/pdf" and a.res_model == "pos.order" and a.res_id == order.id)
+        self.assertEqual(len(pdfs), 1)
+        self.assertIn(xml_attachment, attachments)
+
+    def test_try_send_accepted_email_links_mail_to_pos_order(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE", "email": "mailtest@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/LINK/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        xml_attachment = self.env["ir.attachment"].create(
+            {
+                "name": "te-mail.xml",
+                "type": "binary",
+                "datas": "PGZvbz5iYXI8L2Zvbz4=",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/xml",
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_email_attachments", lambda self: xml_attachment):
+            with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+                with patch.object(type(self.env["mail.mail"]), "send", lambda self: True):
+                    self.assertTrue(order._cr_try_send_accepted_email())
+
+        mail = self.env["mail.mail"].search([("model", "=", "pos.order"), ("res_id", "=", order.id)], limit=1)
+        self.assertTrue(mail)
+        self.assertEqual(mail.email_to, partner.email)
+
+    def test_try_send_accepted_email_skips_duplicate_when_mail_already_exists(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE Dup", "email": "dupmail@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/DUP/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        self.env["mail.mail"].sudo().create(
+            {
+                "subject": order._cr_get_email_subject(),
+                "email_to": partner.email,
+                "body_html": "<p>Duplicado</p>",
+                "state": "sent",
+                "model": "pos.order",
+                "res_id": order.id,
+            }
+        )
+
+        with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+            with patch.object(type(self.env["mail.mail"]), "create", side_effect=AssertionError("Should not create duplicate mail")):
+                self.assertTrue(order._cr_try_send_accepted_email())
+
+        self.assertTrue(order.cr_fe_email_sent)
+
+    def test_try_send_accepted_email_skips_when_send_lock_not_acquired(self):
+        partner = self.env["res.partner"].create({"name": "Cliente FE Lock", "email": "lockmail@example.com"})
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/MAIL/LOCK/001",
+                "partner_id": partner.id,
+                "cr_fe_status": "accepted",
+                "cr_fe_document_type": "te",
+                "cr_fe_email_sent": False,
+            }
+        )
+
+        with patch.object(type(order), "_cr_is_auto_email_enabled", lambda self: True):
+            with patch.object(type(order), "_cr_acquire_email_send_lock", lambda self: False):
+                with patch.object(
+                    type(self.env["mail.mail"]),
+                    "create",
+                    side_effect=AssertionError("Should not create mail when lock is not acquired"),
+                ):
+                    self.assertFalse(order._cr_try_send_accepted_email())
+
+        self.assertFalse(order.cr_fe_email_sent)
+
+    def test_get_email_attachments_includes_linked_pdf_attachment(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/LINK/001",
+                "cr_fe_status": "accepted",
+            }
+        )
+        linked_pdf = self.env["ir.attachment"].create(
+            {
+                "name": "custom_mail_ticket.pdf",
+                "type": "binary",
+                "datas": "JVBERi0xLjQKJWxpbmtlZA==",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/pdf",
+            }
+        )
+        order.cr_fe_pdf_attachment_id = linked_pdf
+
+        with patch.object(type(order), "cr_pos_generate_receipt_pdf_if_accepted", lambda self, order_ids: True):
+            attachments = order._cr_get_email_attachments()
+
+        self.assertIn(linked_pdf, attachments)
+
+    def test_generate_receipt_pdf_if_accepted_skips_pending(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/PENDING/001",
+                "cr_fe_status": "pending",
+                "cr_fe_consecutivo": "00100001010000000001",
+                "cr_receipt_html": "<div class='pos-receipt'>Pendiente</div>",
+            }
+        )
+        order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
+        attachment = self.env["ir.attachment"].search(
+            [("res_model", "=", "pos.order"), ("res_id", "=", order.id), ("mimetype", "=", "application/pdf")],
+            limit=1,
+        )
+        self.assertFalse(attachment)
+
+    def test_generate_receipt_pdf_if_accepted_is_idempotent(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/ACCEPTED/001",
+                "cr_fe_status": "accepted",
+                "cr_fe_consecutivo": "00100001010000000002",
+                "cr_receipt_html": "<div class='pos-receipt'>Aceptado</div>",
+            }
+        )
+        with patch.object(type(order), "_cr_render_receipt_pdf_content", lambda self: b"%PDF-first"):
+            order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
+        first = self.env["ir.attachment"].search(
+            [("res_model", "=", "pos.order"), ("res_id", "=", order.id), ("mimetype", "=", "application/pdf")]
+        )
+        self.assertEqual(len(first), 1)
+        first_id = first.id
+
+        with patch.object(type(order), "_cr_render_receipt_pdf_content", lambda self: b"%PDF-second"):
+            order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
+        second = self.env["ir.attachment"].search(
+            [("res_model", "=", "pos.order"), ("res_id", "=", order.id), ("mimetype", "=", "application/pdf")]
+        )
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second.id, first_id)
+
+    def test_generate_receipt_pdf_fallback_without_html(self):
+        order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "POS/FALLBACK/001",
+                "cr_fe_status": "accepted",
+                "cr_fe_consecutivo": "00100001010000000003",
+            }
+        )
+        fallback = self.env["ir.attachment"].create(
+            {
+                "name": "legacy.pdf",
+                "type": "binary",
+                "datas": "JVBERi0xLjQKJUZha2U=",
+                "res_model": "pos.order",
+                "res_id": order.id,
+                "mimetype": "application/pdf",
+            }
+        )
+        with patch.object(type(order), "_cr_get_or_create_pdf_attachment", lambda self: fallback):
+            order.cr_pos_generate_receipt_pdf_if_accepted([order.id])
+        attachment = self.env["ir.attachment"].search(
+            [("res_model", "=", "pos.order"), ("res_id", "=", order.id), ("mimetype", "=", "application/pdf")]
+        )
+        self.assertEqual(len(attachment), 1)
+        self.assertEqual(attachment.id, fallback.id)
+
+    def test_prefill_reference_from_origin_order_copies_reference_fields(self):
+        RefundOrder = self.env["pos.order"]
+        origin_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "ORIGIN/REF/001",
+                "cr_fe_reference_document_type": "01",
+                "cr_fe_reference_document_number": "50601010100000000000000100001010000000001123456789",
+                "cr_fe_reference_issue_date": fields.Date.today(),
+                "cr_fe_reference_code": "01",
+                "cr_fe_reference_reason": "Ajuste comercial",
+            }
+        )
+        refund_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/REF/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+            }
+        )
+
+        with patch.object(type(refund_order), "_cr_get_origin_order_for_refund", lambda self: origin_order):
+            refund_order._cr_prefill_reference_from_origin_order()
+
+        self.assertEqual(refund_order.cr_fe_reference_document_type, origin_order.cr_fe_reference_document_type)
+        self.assertEqual(refund_order.cr_fe_reference_document_number, origin_order.cr_fe_reference_document_number)
+        self.assertEqual(refund_order.cr_fe_reference_issue_date, origin_order.cr_fe_reference_issue_date)
+        self.assertEqual(refund_order.cr_fe_reference_code, origin_order.cr_fe_reference_code)
+        self.assertEqual(refund_order.cr_fe_reference_reason, origin_order.cr_fe_reference_reason)
+
+
+    def test_prefill_reference_from_origin_order_derives_from_origin_fe_fields(self):
+        RefundOrder = self.env["pos.order"]
+        origin_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "ORIGIN/REF/FE/001",
+                "cr_fe_document_type": "te",
+                "cr_fe_clave": "50601010100000000000000100001040000000001123456789",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        refund_order = RefundOrder.create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/REF/FE/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+            }
+        )
+
+        with patch.object(type(refund_order), "_cr_get_origin_order_for_refund", lambda self: origin_order):
+            refund_order._cr_prefill_reference_from_origin_order()
+
+        self.assertEqual(refund_order.cr_fe_reference_document_type, "04")
+        self.assertEqual(refund_order.cr_fe_reference_document_number, origin_order.cr_fe_clave)
+        self.assertEqual(refund_order.cr_fe_reference_issue_date, origin_order.date_order.date())
+
+    def test_prefill_reference_from_origin_order_enables_refund_reference_data(self):
+        refund_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+                "cr_fe_reference_document_type": "01",
+                "cr_fe_reference_document_number": "50601010100000000000000100001010000000001123456789",
+                "cr_fe_reference_issue_date": fields.Date.today(),
+                "cr_fe_reference_code": "01",
+                "cr_fe_reference_reason": "Ajuste comercial",
+            }
+        )
+
+        reference_data = refund_order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), refund_order.cr_fe_reference_document_type)
+        self.assertEqual(reference_data.get("number"), refund_order.cr_fe_reference_document_number)
+        self.assertEqual(reference_data.get("issue_date"), refund_order.cr_fe_reference_issue_date)
+        self.assertFalse(refund_order._cr_should_delay_credit_note_xml())
+
+    def test_capture_reference_snapshot_fills_optional_reference_fields_when_required_are_present(self):
+        refund_order = self.env["pos.order"].create(
+            {
+                "company_id": self.env.company.id,
+                "name": "REFUND/OPTIONAL/001",
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+                "cr_fe_reference_document_type": "01",
+                "cr_fe_reference_document_number": "50601010100000000000000100001010000000001123456789",
+                "cr_fe_reference_issue_date": fields.Date.today(),
+                "cr_fe_reference_code": False,
+                "cr_fe_reference_reason": False,
+            }
+        )
+
+        refund_order._cr_capture_reference_snapshot()
+
+        self.assertEqual(refund_order.cr_fe_reference_code, "01")
+        self.assertEqual(refund_order.cr_fe_reference_reason, "Devolución de mercadería")
+
 
     def test_get_refund_reference_data_detects_nc_by_refunded_lines(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
@@ -236,6 +919,208 @@ class TestPosEInvoice(TransactionCase):
 
         self.assertEqual(reference_data.get("document_type"), "04")
         self.assertEqual(reference_data.get("number"), origin_order.cr_fe_clave)
+
+    def test_get_pos_document_type_returns_nc_for_refund_lines_before_payment(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        order_line = self.env["pos.order.line"].new({"order_id": order.id})
+        refunded_line = self.env["pos.order.line"].new()
+        order_line.refunded_orderline_id = refunded_line
+        order.lines = [order_line]
+
+        self.assertEqual(order._cr_get_pos_document_type(), "nc")
+
+    def test_get_pos_document_type_returns_te_for_regular_positive_order(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        self.assertEqual(order._cr_get_pos_document_type(), "te")
+
+    def test_should_emit_fe_from_pos_when_order_to_invoice_flag_is_true(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "state": "paid",
+                "invoice_status": "no",
+                "to_invoice": True,
+            }
+        )
+        self.assertTrue(order._cr_is_marked_for_invoicing())
+        self.assertTrue(order._cr_should_emit_ticket())
+
+    def test_invoice_status_to_invoice_does_not_block_te_when_to_invoice_is_false(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "state": "paid",
+                "invoice_status": "to invoice",
+                "to_invoice": False,
+            }
+        )
+        self.assertFalse(order._cr_is_marked_for_invoicing())
+        self.assertTrue(order._cr_should_emit_ticket())
+
+    def test_generate_pos_order_invoice_disables_mail_flags_and_context(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0})
+        captured = {}
+
+        def _fake_parent_generate(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+            captured["context"] = dict(self.env.context)
+            return "ok"
+
+        with patch("odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice", _fake_parent_generate):
+            result = order._generate_pos_order_invoice(
+                send_email=True,
+                mail_invoice=True,
+                send_and_print_values={"send_mail": True, "send_email": True},
+            )
+
+        self.assertEqual(result, "ok")
+        self.assertFalse(captured["kwargs"]["send_email"])
+        self.assertFalse(captured["kwargs"]["mail_invoice"])
+        self.assertFalse(captured["kwargs"]["send_and_print_values"]["send_mail"])
+        self.assertFalse(captured["kwargs"]["send_and_print_values"]["send_email"])
+        self.assertFalse(captured["context"]["mail_notify_force_send"])
+        self.assertTrue(captured["context"]["mail_notify_noemail"])
+        self.assertTrue(captured["context"]["skip_invoice_send"])
+
+    def test_generate_pos_order_invoice_skips_native_invoice_creation_when_marked_to_invoice(self):
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": 10.0,
+                "to_invoice": True,
+                "config_id": self.config.id,
+            }
+        )
+        with patch("odoo.addons.point_of_sale.models.pos_order.PosOrder._generate_pos_order_invoice") as parent_generate:
+            result = order._generate_pos_order_invoice()
+
+        self.assertFalse(parent_generate.called)
+        self.assertFalse(result)
+
+
+    def test_compute_cr_fe_document_type_marks_nc_for_refund_lines_before_payment(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
+        order_line = self.env["pos.order.line"].new({"order_id": order.id})
+        refunded_line = self.env["pos.order.line"].new()
+        order_line.refunded_orderline_id = refunded_line
+        order.lines = [order_line]
+
+        order._compute_cr_fe_document_type()
+
+        self.assertEqual(order.cr_fe_document_type, "nc")
+
+    def test_compute_fp_document_type_marks_nc_for_refund_lines_before_payment(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft"})
+        order_line = self.env["pos.order.line"].new({"order_id": order.id})
+        refunded_line = self.env["pos.order.line"].new()
+        order_line.refunded_orderline_id = refunded_line
+        order.lines = [order_line]
+
+        order._compute_fp_pos_fe_fields()
+
+        self.assertEqual(order.fp_document_type, "NC")
+
+    def test_compute_fp_document_type_marks_fe_when_order_is_marked_to_invoice(self):
+        order = self.env["pos.order"].new(
+            {"company_id": self.env.company.id, "amount_total": 10.0, "state": "draft", "to_invoice": True}
+        )
+
+        order._compute_cr_fe_document_type()
+        order._compute_fp_pos_fe_fields()
+
+        self.assertEqual(order.cr_fe_document_type, "fe")
+        self.assertEqual(order.fp_document_type, "FE")
+
+
+    def test_extract_issue_date_from_clave(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        clave = "50627022600050393008700200010040000000381000000888"
+
+        issue_date = order._cr_extract_issue_date_from_clave(clave)
+
+        self.assertEqual(issue_date, fields.Date.from_string("2026-02-27"))
+
+    def test_get_refund_reference_data_uses_clave_date_when_origin_date_missing(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+
+        class FakeOriginOrder:
+            _fields = {
+                "cr_fe_clave": object(),
+                "cr_fe_consecutivo": object(),
+                "cr_fe_document_type": object(),
+                "date_order": object(),
+            }
+            write_date = False
+            create_date = False
+
+            def sudo(self):
+                return self
+
+            def with_context(self, **kwargs):
+                return self
+
+            def read(self, fields, load=False):
+                return [
+                    {
+                        "cr_fe_clave": "50627022600050393008700200010040000000381000000888",
+                        "cr_fe_consecutivo": False,
+                        "cr_fe_document_type": "te",
+                        "date_order": False,
+                    }
+                ]
+
+        fake_origin_order = FakeOriginOrder()
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: fake_origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ), patch.object(type(order), "_cr_is_credit_note_order", lambda self: True):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("issue_date"), fields.Date.from_string("2026-02-27"))
+
+    def test_get_refund_reference_data_skips_missing_optional_reference_fields(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+
+        class FakeOriginOrder:
+            _fields = {
+                "cr_fe_clave": object(),
+                "cr_fe_consecutivo": object(),
+                "cr_fe_document_type": object(),
+                "date_order": object(),
+            }
+
+            def sudo(self):
+                return self
+
+            def with_context(self, **kwargs):
+                return self
+
+            def read(self, fields, load=False):
+                assert "fp_reference_code" not in fields
+                assert "fp_reference_reason" not in fields
+                return [
+                    {
+                        "cr_fe_clave": "50601010100000000000000100001010000000001123456789",
+                        "cr_fe_consecutivo": "00100001010000000001",
+                        "cr_fe_document_type": "te",
+                        "date_order": fields_module.Datetime.now(),
+                    }
+                ]
+
+        fields_module = fields
+        fake_origin_order = FakeOriginOrder()
+
+        with patch.object(type(order), "_cr_get_origin_order_for_refund", lambda self: fake_origin_order), patch.object(
+            type(order), "_cr_get_origin_invoice_for_refund", lambda self: self.env["account.move"]
+        ), patch.object(type(order), "_cr_is_credit_note_order", lambda self: True):
+            reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("code"), "01")
+        self.assertEqual(reference_data.get("reason"), "Devolución de mercadería")
 
     def test_build_pos_payload_for_nc_includes_reference_aliases(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
@@ -293,6 +1178,76 @@ class TestPosEInvoice(TransactionCase):
         if "reversed_entry_id" in move._fields:
             self.assertEqual(move.reversed_entry_id, origin_invoice)
 
+
+    def test_build_refund_reference_values_prioritizes_stored_pos_reference_fields(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
+        origin_order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "cr_fe_document_type": "fe",
+                "cr_fe_clave": "50601010100000000000000100001010000000001111111111",
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        origin_invoice = self.env["account.move"].new(
+            {
+                "move_type": "out_invoice",
+                "name": "FAC-ORIG",
+                "invoice_date": fields.Date.from_string("2026-01-05"),
+            }
+        )
+        manual_issue_date = fields.Date.from_string("2026-02-27")
+        reference_data = {
+            "document_type": "04",
+            "number": "50601010100000000000000100001040000000001123456789",
+            "issue_date": manual_issue_date,
+            "code": "02",
+            "reason": "Anulación parcial",
+        }
+
+        with patch.object(type(order), "_cr_get_refund_reference_data", lambda self: reference_data), patch.object(
+            type(order), "_cr_get_origin_order_for_refund", lambda self: origin_order
+        ), patch.object(type(order), "_cr_get_origin_invoice_for_refund", lambda self: origin_invoice):
+            values = order._cr_build_refund_reference_values()
+
+        move_fields = self.env["account.move"]._fields
+        for field_name in ("fp_reference_document_type", "reference_document_type", "l10n_cr_reference_document_type"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "04")
+        for field_name in ("fp_reference_document_number", "reference_document_number", "l10n_cr_reference_document_number"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), reference_data["number"])
+        for field_name in ("fp_reference_issue_date", "reference_issue_date", "l10n_cr_reference_issue_date"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), manual_issue_date)
+        for field_name in ("fp_reference_code", "reference_code", "l10n_cr_reference_code"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "02")
+        for field_name in ("fp_reference_reason", "reference_reason", "l10n_cr_reference_reason"):
+            if field_name in move_fields:
+                self.assertEqual(values.get(field_name), "Anulación parcial")
+
+
+    def test_send_pending_te_marks_reference_pending_when_prepare_raises_usererror(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id, "cr_fe_status": "pending", "amount_total": -10.0})
+        captured = {}
+
+        def _fake_prepare(_self):
+            raise UserError("missing reference")
+
+        def _fake_write(_self, values):
+            captured.update(values)
+            return True
+
+        with patch.object(type(order), "_cr_prepare_te_document", _fake_prepare), patch.object(
+            type(order), "_cr_should_delay_credit_note_xml", lambda self: True
+        ), patch.object(type(order), "write", _fake_write):
+            sent = order._cr_send_pending_te_to_hacienda()
+
+        self.assertFalse(sent)
+        self.assertEqual(captured.get("cr_fe_status"), "error_retry")
+        self.assertEqual(captured.get("cr_fe_error_code"), "reference_pending")
+
     def test_should_delay_credit_note_xml_when_reference_is_incomplete(self):
         order = self.env["pos.order"].new({"company_id": self.env.company.id, "amount_total": -10.0})
 
@@ -345,3 +1300,609 @@ class TestPosEInvoice(TransactionCase):
             reference_data = order._cr_get_refund_reference_data()
 
         self.assertEqual(reference_data, {})
+
+    def test_get_refund_reference_data_prioritizes_manual_pos_reference_fields(self):
+        manual_issue_date = fields.Date.from_string("2026-02-27")
+        order = self.env["pos.order"].new(
+            {
+                "company_id": self.env.company.id,
+                "amount_total": -10.0,
+                "cr_fe_document_type": "nc",
+                "cr_fe_reference_document_type": "04",
+                "cr_fe_reference_document_number": "50601010100000000000000100001040000000001123456789",
+                "cr_fe_reference_issue_date": manual_issue_date,
+                "cr_fe_reference_code": "02",
+                "cr_fe_reference_reason": "Anulación parcial",
+            }
+        )
+
+        reference_data = order._cr_get_refund_reference_data()
+
+        self.assertEqual(reference_data.get("document_type"), "04")
+        self.assertEqual(reference_data.get("number"), "50601010100000000000000100001040000000001123456789")
+        self.assertEqual(reference_data.get("issue_date"), manual_issue_date)
+        self.assertEqual(reference_data.get("code"), "02")
+        self.assertEqual(reference_data.get("reason"), "Anulación parcial")
+
+
+    def test_order_fields_derives_refund_reference_from_ui_refunded_lines(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Refund UI 001",
+                "amount_total": -100.0,
+                "lines": [
+                    [0, 0, {"refunded_orderline_id": 321}],
+                ],
+            }
+        }
+        fake_origin_date = fields.Datetime.from_string("2026-02-27 15:45:00")
+
+        def _fake_line_search_read(_self, domain, fields_list, limit=0):
+            self.assertEqual(domain, [("id", "in", [321])])
+            self.assertIn("order_id", fields_list)
+            return [{"id": 321, "order_id": [77, "ORIGIN/001"]}]
+
+        def _fake_order_search_read(_self, domain, fields_list, limit=0):
+            self.assertEqual(domain, [("id", "=", 77)])
+            self.assertIn("cr_fe_clave", fields_list)
+            return [
+                {
+                    "cr_fe_document_type": "te",
+                    "cr_fe_clave": "50601010100000000000000100001040000000001123456789",
+                    "date_order": fake_origin_date,
+                    "cr_fe_reference_document_type": False,
+                    "cr_fe_reference_document_number": False,
+                    "cr_fe_reference_issue_date": False,
+                    "cr_fe_reference_code": False,
+                    "cr_fe_reference_reason": False,
+                }
+            ]
+
+        with patch.object(type(self.env["pos.order.line"]), "search_read", _fake_line_search_read), patch.object(
+            type(order_model), "search_read", _fake_order_search_read
+        ):
+            values = order_model._order_fields(ui_order)
+
+        self.assertEqual(values.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(values.get("cr_fe_reference_document_number"), "50601010100000000000000100001040000000001123456789")
+        self.assertEqual(values.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(values.get("cr_fe_reference_code"), "01")
+        self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+
+    def test_order_fields_merges_partial_manual_reference_with_auto_defaults(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Refund UI 002",
+                "amount_total": -100.0,
+                "lines": [
+                    [0, 0, {"refunded_orderline_id": 654}],
+                ],
+                # Manual payload intentionally omits code/reason.
+                "reference": {
+                    "document_type": "04",
+                    "number": "50601010100000000000000100001040000000001123456789",
+                    "issue_date": "2026-02-27",
+                },
+            }
+        }
+
+        def _fake_line_search_read(_self, domain, fields_list, limit=0):
+            return [{"id": 654, "order_id": [88, "ORIGIN/002"]}]
+
+        def _fake_order_search_read(_self, domain, fields_list, limit=0):
+            return [
+                {
+                    "cr_fe_document_type": "te",
+                    "cr_fe_clave": "50601010100000000000000100001040000000001123456789",
+                    "date_order": fields.Datetime.from_string("2026-02-27 10:00:00"),
+                    "cr_fe_reference_document_type": False,
+                    "cr_fe_reference_document_number": False,
+                    "cr_fe_reference_issue_date": False,
+                    "cr_fe_reference_code": False,
+                    "cr_fe_reference_reason": False,
+                }
+            ]
+
+        with patch.object(type(self.env["pos.order.line"]), "search_read", _fake_line_search_read), patch.object(
+            type(order_model), "search_read", _fake_order_search_read
+        ):
+            values = order_model._order_fields(ui_order)
+
+        self.assertEqual(values.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(values.get("cr_fe_reference_document_number"), "50601010100000000000000100001040000000001123456789")
+        self.assertEqual(values.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(values.get("cr_fe_reference_code"), "01")
+        self.assertEqual(values.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+
+    def test_order_fields_imports_manual_reference_from_ui_payload(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Order 001",
+                "amount_total": -10.0,
+                "reference": {
+                    "document_type": "04",
+                    "number": "50601010100000000000000100001040000000001123456789",
+                    "issue_date": "2026-02-27",
+                    "code": "01",
+                    "reason": "Devolución de mercadería",
+                },
+            }
+        }
+
+        fields_vals = order_model._order_fields(ui_order)
+
+        self.assertEqual(fields_vals.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(
+            fields_vals.get("cr_fe_reference_document_number"),
+            "50601010100000000000000100001040000000001123456789",
+        )
+        self.assertEqual(fields_vals.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(fields_vals.get("cr_fe_reference_code"), "01")
+        self.assertEqual(fields_vals.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+    def test_order_fields_ignores_literal_false_in_manual_reference(self):
+        order_model = self.env["pos.order"]
+        ui_order = {
+            "data": {
+                "name": "Order 002",
+                "amount_total": -10.0,
+                "reference": {
+                    "document_type": "04",
+                    "number": "50601010100000000000000100001040000000001123456789",
+                    "issue_date": "2026-02-27",
+                    "code": "false",
+                    "reason": "false",
+                },
+            }
+        }
+
+        fields_vals = order_model._order_fields(ui_order)
+
+        self.assertEqual(fields_vals.get("cr_fe_reference_document_type"), "04")
+        self.assertEqual(
+            fields_vals.get("cr_fe_reference_document_number"),
+            "50601010100000000000000100001040000000001123456789",
+        )
+        self.assertEqual(fields_vals.get("cr_fe_reference_issue_date"), fields.Date.from_string("2026-02-27"))
+        self.assertEqual(fields_vals.get("cr_fe_reference_code"), "01")
+        self.assertEqual(fields_vals.get("cr_fe_reference_reason"), "Devolución de mercadería")
+
+    def test_build_virtual_move_uses_positive_quantities_for_credit_notes(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        product = self.env["product.product"].create(
+            {
+                "name": "Servicio NC",
+                "uom_id": uom_unit.id,
+                "uom_po_id": uom_unit.id,
+                "lst_price": 100.0,
+            }
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": product.id,
+                            "qty": -1.0,
+                            "price_unit": 100.0,
+                            "discount": 0.0,
+                            "tax_ids_after_fiscal_position": [(6, 0, [])],
+                            "product_uom_id": uom_unit.id,
+                        },
+                    )
+                ],
+            }
+        )
+
+        move = order._cr_build_virtual_move(
+            document_type="nc",
+            consecutivo="00100001040000000999",
+            clave="50601010100000000000000100001040000000999123456789",
+        )
+
+        self.assertEqual(move.move_type, "out_refund")
+        self.assertEqual(move.invoice_line_ids[0].quantity, 1.0)
+
+    def test_extract_other_charges_from_ui_and_payload_mapping(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+            }
+        )
+
+        ui_order = {
+            "data": {
+                "name": "Order 001",
+                "amount_total": 11600.0,
+                "amount_tax": 1600.0,
+                "other_charges": [
+                    {"type": "02", "code": "99", "amount": 1200.5, "currency": "CRC", "description": "Flete"},
+                    {"type": "03", "code": "06", "amount": 1000.0, "description": "Impuesto de servicio 10%"},
+                ],
+            }
+        }
+
+        vals = self.env["pos.order"]._order_fields(ui_order)
+        self.assertIn("cr_other_charges_json", vals)
+        order.cr_other_charges_json = vals["cr_other_charges_json"]
+
+        payload = order._cr_build_pos_payload(
+            consecutivo="00100001040000000111",
+            clave="50601010100000000000000100001040000000111123456789",
+            document_type="te",
+        )
+
+        self.assertIn("other_charges", payload)
+        self.assertEqual(len(payload["other_charges"]), 1)
+        self.assertEqual(payload["other_charges"][0]["code"], "06")
+        self.assertEqual(payload["other_charges"][0]["description"], "Impuesto de servicio 10%")
+        self.assertEqual(payload["other_charges"][0]["percent"], 10)
+        self.assertEqual(payload["other_charges"], payload["otros_cargos"])
+
+    def test_extract_other_charges_computes_amount_when_code_06_missing_amount(self):
+        ui_order = {"data": {"amount_total": 5800.0, "amount_tax": 800.0, "other_charges": [{"code": "06"}]}}
+        charges = self.env["pos.order"]._cr_extract_other_charges_from_ui(ui_order)
+        self.assertEqual(len(charges), 1)
+        self.assertEqual(charges[0]["code"], "06")
+        self.assertEqual(charges[0]["amount"], 500.0)
+        self.assertEqual(charges[0]["percent"], 10)
+
+    def test_get_other_charges_payload_falls_back_to_declared_amount_field(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+            }
+        )
+        with patch.object(type(order), "_cr_get_declared_other_charge_amount", lambda self: 123.45), patch.object(
+            type(order), "_cr_get_service_charge_percent", lambda self: 10.0
+        ):
+            payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertEqual(payload[0]["amount"], 123.45)
+        self.assertEqual(payload[0]["description"], "Imp. Serv 10%")
+
+    def test_get_other_charges_payload_uses_native_tip_amount_when_tip_line_not_present(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "tip_amount": 15.0,
+            }
+        )
+        with patch.object(type(order), "_cr_get_service_charge_percent", lambda self: 10.0):
+            payload = order._cr_get_other_charges_payload()
+
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["code"], "06")
+        self.assertEqual(payload[0]["amount"], 15.0)
+        self.assertEqual(payload[0]["percent"], 10.0)
+
+    def test_build_payload_maps_tip_line_to_other_charges_and_excludes_detail_line(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create(
+            {"name": "Producto Base", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0}
+        )
+        tip_product = self.env["product.product"].create(
+            {"name": "Propina POS", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product):
+            payload = order._cr_build_pos_payload(
+                consecutivo="00100001040000000112",
+                clave="50601010100000000000000100001040000000112123456789",
+                document_type="te",
+            )
+
+        self.assertEqual(len(payload["lines"]), 1)
+        self.assertEqual(payload["lines"][0]["product_id"], main_product.id)
+        self.assertEqual(len(payload["other_charges"]), 1)
+        self.assertEqual(payload["other_charges"][0]["code"], "06")
+        self.assertEqual(payload["other_charges"][0]["amount"], 10.0)
+        self.assertEqual(payload["other_charges"][0]["percent"], 10.0)
+
+    def test_build_virtual_move_excludes_tip_lines_and_injects_other_charges(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create(
+            {"name": "Producto Virtual", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0}
+        )
+        tip_product = self.env["product.product"].create(
+            {"name": "Propina Virtual", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 5.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+        other_charges = [
+            {
+                "type": "01",
+                "code": "06",
+                "description": "Imp. Serv 10%",
+                "percent": 10.0,
+                "amount": 15.0,
+                "currency": "CRC",
+            }
+        ]
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product), patch.object(
+            type(order),
+            "_cr_get_other_charges_payload",
+            lambda self: other_charges,
+        ):
+            move = order._cr_build_virtual_move(
+                document_type="te",
+                consecutivo="00100001040000000114",
+                clave="50601010100000000000000100001040000000114123456789",
+            )
+
+        self.assertEqual(len(move.invoice_line_ids), 1)
+        self.assertEqual(move.invoice_line_ids[0].product_id.id, main_product.id)
+
+        field_name, field = order._cr_get_move_other_charges_field(move)
+        if not field_name:
+            self.skipTest("No existe campo de otros cargos compatible en account.move para este entorno.")
+        injected = move[field_name]
+        if field.type in ("char", "text", "html"):
+            injected = json.loads(injected or "[]")
+        self.assertEqual(len(injected), 1)
+        self.assertEqual(injected[0]["code"], "06")
+        self.assertEqual(injected[0]["percent"], 10.0)
+        self.assertEqual(injected[0]["amount"], 15.0)
+
+    def test_build_virtual_move_falls_back_to_marked_lines_when_other_charges_field_not_available(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create(
+            {"name": "Producto Base Fallback", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0}
+        )
+        tip_product = self.env["product.product"].create(
+            {"name": "Propina Fallback", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+        other_charges = [{"code": "06", "amount": 10.0, "percent": 10.0, "description": "Imp. Serv 10%"}]
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product), patch.object(
+            type(order), "_cr_get_other_charges_payload", lambda self: other_charges
+        ), patch.object(type(order), "_cr_set_other_charges_on_virtual_move", lambda self, move, charges: False):
+            move = order._cr_build_virtual_move(
+                document_type="te",
+                consecutivo="00100001040000000115",
+                clave="50601010100000000000000100001040000000115123456789",
+            )
+
+        self.assertEqual(len(move.invoice_line_ids), 2)
+        tip_line = move.invoice_line_ids.filtered(lambda line: line.product_id == tip_product)
+        self.assertTrue(tip_line)
+        marker_fields = ("fp_is_other_charge_line", "cr_is_other_charge_line", "is_other_charge_line")
+        marker_field = next((name for name in marker_fields if name in tip_line._fields), False)
+        if marker_field:
+            self.assertTrue(tip_line[0][marker_field])
+
+    def test_prepare_other_charges_for_x2many_field_returns_create_commands(self):
+        order = self.env["pos.order"]
+
+        class DummyField:
+            type = "one2many"
+            comodel_name = "account.move.line"
+
+        commands = order._cr_prepare_other_charges_for_move_field(
+            DummyField(),
+            [
+                {
+                    "code": "06",
+                    "description": "Imp. Serv 10%",
+                    "amount": 15.0,
+                    "percent": 10.0,
+                    "fp_is_other_charge_line": True,
+                }
+            ],
+        )
+
+        self.assertTrue(commands)
+        self.assertEqual(commands[0][0], 0)
+        self.assertEqual(commands[0][1], 0)
+        self.assertIn("name", commands[0][2])
+        self.assertEqual(commands[0][2]["name"], "Imp. Serv 10%")
+
+    def test_sync_other_charges_from_tip_lines_persists_json_for_reporting(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        main_product = self.env["product.product"].create({"name": "Base Sync", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0})
+        tip_product = self.env["product.product"].create({"name": "Propina Sync", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0})
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": main_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": tip_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: tip_product):
+            order._cr_sync_other_charges_from_tip_lines()
+
+        self.assertTrue(order.cr_other_charges_json)
+        self.assertEqual(order.cr_other_charges_amount, 10.0)
+
+    def test_normalize_other_charges_accepts_cr_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+
+        charges = order._cr_normalize_other_charges(
+            [
+                {
+                    "type": "01",
+                    "code": "06",
+                    "amount": 1000.0,
+                    "currency": "CRC",
+                    "description": "Imp. Serv 10%",
+                    "percent": 10.0,
+                    "cr_is_other_charge_line": True,
+                }
+            ]
+        )
+
+        self.assertEqual(len(charges), 1)
+        self.assertTrue(charges[0]["fp_is_other_charge_line"])
+        self.assertTrue(charges[0]["cr_is_other_charge_line"])
+
+    def test_is_other_charge_line_payload_accepts_generic_marker(self):
+        order = self.env["pos.order"].new({"company_id": self.env.company.id})
+        payload = {
+            "product_id": False,
+            "qty": 1.0,
+            "price_unit": 5840.0,
+            "is_other_charge_line": "true",
+        }
+        self.assertTrue(order._cr_is_other_charge_line_payload(payload))
+
+    def test_build_payload_guesses_tip_line_without_tip_product_config(self):
+        company = self.env.company
+        pricelist = self.env["product.pricelist"].search(
+            [("currency_id", "=", company.currency_id.id), "|", ("company_id", "=", company.id), ("company_id", "=", False)],
+            limit=1,
+        )
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].create({"name": "Test", "currency_id": company.currency_id.id, "company_id": company.id})
+
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        base_product = self.env["product.product"].create({"name": "Producto Base 2", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 100.0})
+        service_product = self.env["product.product"].create(
+            {"name": "Servicio 10%", "uom_id": uom_unit.id, "uom_po_id": uom_unit.id, "lst_price": 10.0}
+        )
+        order = self.env["pos.order"].new(
+            {
+                "company_id": company.id,
+                "pricelist_id": pricelist.id,
+                "date_order": fields.Datetime.now(),
+                "lines": [
+                    (0, 0, {"product_id": base_product.id, "qty": 1.0, "price_unit": 100.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                    (0, 0, {"product_id": service_product.id, "qty": 1.0, "price_unit": 10.0, "discount": 0.0, "product_uom_id": uom_unit.id}),
+                ],
+            }
+        )
+
+        with patch.object(type(order), "_cr_get_tip_product", lambda self: self.env["product.product"]):
+            payload = order._cr_build_pos_payload(
+                consecutivo="00100001040000000113",
+                clave="50601010100000000000000100001040000000113123456789",
+                document_type="te",
+            )
+
+        self.assertEqual(len(payload["lines"]), 1)
+        self.assertEqual(payload["lines"][0]["product_id"], base_product.id)
+        self.assertEqual(len(payload["other_charges"]), 1)
+        self.assertEqual(payload["other_charges"][0]["code"], "06")
+        self.assertEqual(payload["other_charges"][0]["amount"], 10.0)
