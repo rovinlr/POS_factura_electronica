@@ -3,291 +3,138 @@
 import { patch } from "@web/core/utils/patch";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
 
-/**
- * Normalize helpers
- */
+const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 const normalizeText = (value) => {
-    if (value === undefined || value === null) return null;
+    if (value === undefined || value === null) {
+        return null;
+    }
     const text = String(value).trim();
     return text || null;
 };
 
-const normalizeDocumentType = (value) => {
-    const text = normalizeText(value);
-    if (!text) return null;
-    const normalized = text.toLowerCase();
-    const mapping = {
-        te: "te",
-        fe: "fe",
-        nc: "nc",
-        nd: "nd",
-        tiquete: "te",
-        "tiquete electronico": "te",
-        "tiquete electrónico": "te",
-        factura: "fe",
-        "factura electronica": "fe",
-        "factura electrónica": "fe",
-        "nota credito": "nc",
-        "nota de credito": "nc",
-        "nota de crédito": "nc",
-        "nota debito": "nd",
-        "nota de debito": "nd",
-        "nota de débito": "nd",
-    };
-    return mapping[normalized] || normalized;
-};
+const pickPartner = (order) =>
+    firstDefined(
+        order.getPartner && order.getPartner(),
+        order.get_partner && order.get_partner(),
+        order.partner,
+        order.partner_id
+    ) || null;
 
-const normalizeDate = (value) => {
-    if (value === undefined || value === null || value === false) return null;
-    if (typeof value === "string") {
-        // Accept "YYYY-MM-DD" or "YYYY-MM-DD HH:mm:ss"
-        return value.trim().slice(0, 10) || null;
-    }
-    if (value instanceof Date) {
-        return value.toISOString().slice(0, 10);
-    }
-    // Luxon DateTime
-    if (typeof value?.toISODate === "function") {
-        return value.toISODate();
-    }
-    return null;
-};
-
-
-const pad2 = (value) => String(value).padStart(2, "0");
-
-const formatDateDDMMYYYY = (value) => {
-    if (value === undefined || value === null || value === false) return null;
-
-    if (typeof value?.toFormat === "function") {
-        const formatted = value.toFormat("dd/MM/yyyy");
-        return normalizeText(formatted);
-    }
-
-    if (value instanceof Date) {
-        if (Number.isNaN(value.getTime())) return null;
-        return `${pad2(value.getDate())}/${pad2(value.getMonth() + 1)}/${value.getFullYear()}`;
-    }
-
-    if (typeof value === "number") {
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return null;
-        return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
-    }
-
-    const raw = normalizeText(value);
-    if (!raw) return null;
-
-    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) {
-        return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
-    }
-
-    const dmyMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-    if (dmyMatch) {
-        return `${dmyMatch[1]}/${dmyMatch[2]}/${dmyMatch[3]}`;
-    }
-
-    const mdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (mdyMatch) {
-        return `${pad2(mdyMatch[2])}/${pad2(mdyMatch[1])}/${mdyMatch[3]}`;
-    }
-
-    const parsed = new Date(raw);
-    if (!Number.isNaN(parsed.getTime())) {
-        return `${pad2(parsed.getDate())}/${pad2(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
-    }
-
-    return null;
-};
-
-
-const formatCrAmount = (value, currencySymbol = "") => {
-    const amount = Number(value || 0);
-    const formatted = new Intl.NumberFormat("es-CR", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(amount);
-    return currencySymbol ? `${currencySymbol} ${formatted}` : formatted;
-};
-
-const classifyTaxBucket = (tax) => {
-    const name = normalizeText(tax?.name)?.toLowerCase() || "";
-    const code = normalizeText(tax?.l10n_cr_tax_code || tax?.tax_code)?.toLowerCase() || "";
-    if (name.includes("exoner") || code.includes("exo")) return "Exo";
-    if (name.includes("exento") || code.includes("exe")) return "Exe";
-    if (name.includes("no sujeto") || name.includes("no_sujeto") || code.includes("nos")) return "NoS";
-
-    const rate = Number(tax?.amount || 0);
-    if (Number.isFinite(rate)) {
-        if (Math.abs(rate - 13) < 0.0001) return "13%";
-        if (Math.abs(rate) < 0.0001) return "0%";
-        return `${rate}%`;
-    }
-    return "0%";
-};
-
-const buildTaxSummaryLines = (order, printData = {}) => {
-    const baseBuckets = ["13%", "0%", "Exe", "Exo", "NoS"];
-    const buckets = new Map(baseBuckets.map((label) => [label, { label, base: 0, tax: 0 }]));
-    const orderLines = order?.get_orderlines?.() || [];
-
-    for (const line of orderLines) {
-        const prices = line?.get_all_prices?.() || {};
-        const base = Number(prices.priceWithoutTax ?? prices.price_without_tax ?? 0);
-        const taxAmount = Number(prices.tax ?? prices.taxAmount ?? 0);
-        const taxes = line?.get_taxes?.() || [];
-
-        let label = "0%";
-        if (taxes.length) {
-            label = classifyTaxBucket(taxes[0]);
-        }
-        if (!buckets.has(label)) {
-            buckets.set(label, { label, base: 0, tax: 0 });
-        }
-        const bucket = buckets.get(label);
-        bucket.base += base;
-        bucket.tax += taxAmount;
-    }
-
-    const currencySymbol = printData.currency?.symbol || order?.pos?.currency?.symbol || "";
-
-    return Array.from(buckets.values())
-        .filter((line) => line.base || line.tax || baseBuckets.includes(line.label))
-        .map((line) => ({
-            ...line,
-            formatted_base: formatCrAmount(line.base, currencySymbol),
-            formatted_tax: formatCrAmount(line.tax, currencySymbol),
-        }));
-};
-
-const buildReferencePayload = (order) => {
-    const documentType = normalizeText(order.cr_fe_reference_document_type);
-    const number = normalizeText(order.cr_fe_reference_document_number);
-    const issueDate = normalizeDate(order.cr_fe_reference_issue_date);
-    const code = normalizeText(order.cr_fe_reference_code);
-    const reason = normalizeText(order.cr_fe_reference_reason);
-
-    if (!documentType && !number && !issueDate && !code && !reason) return null;
+const buildCompanyData = (order, receipt) => {
+    const company =
+        firstDefined(
+            receipt.company,
+            receipt.headerData && receipt.headerData.company,
+            receipt.headerData,
+            order.pos && order.pos.company,
+            order.company,
+            order.company_id
+        ) || {};
 
     return {
-        cr_fe_reference_document_type: documentType,
-        cr_fe_reference_document_number: number,
-        cr_fe_reference_issue_date: issueDate,
-        cr_fe_reference_code: code,
-        cr_fe_reference_reason: reason,
-        // Backward/compat-friendly nested object (server can ignore)
-        reference: {
-            document_type: documentType,
-            number,
-            issue_date: issueDate,
-            code,
-            reason,
-        },
+        ...company,
+        name: normalizeText(firstDefined(company.name, company.company_name, company.display_name)),
+        vat: normalizeText(firstDefined(company.vat, company.company_registry, company.identification_id)),
+        phone: normalizeText(firstDefined(company.phone, company.mobile)),
+        email: normalizeText(company.email),
     };
 };
 
-const stripNativeReceiptPartner = (data = {}) => {
-    // Odoo versions can render partner from different payload roots.
-    // We keep customer info only in our custom "Datos del cliente" block.
-    data.partner = null;
-    if (data.headerData && typeof data.headerData === "object") {
-        data.headerData.partner = null;
-    }
-    if (data.receipt && typeof data.receipt === "object" && data.receipt.headerData) {
-        data.receipt.headerData.partner = null;
-    }
-    return data;
+const buildPartnerData = (order, receipt) => {
+    const partner = firstDefined(receipt.partner, receipt.client, pickPartner(order)) || {};
+    return {
+        ...partner,
+        name: normalizeText(firstDefined(partner.name, partner.display_name)),
+        vat: normalizeText(firstDefined(partner.vat, partner.identification_id)),
+        email: normalizeText(partner.email),
+        phone: normalizeText(firstDefined(partner.phone, partner.mobile)),
+    };
 };
 
 patch(PosOrder.prototype, {
+    export_as_JSON() {
+        const json = super.export_as_JSON ? super.export_as_JSON(...arguments) : {};
+        json.cr_fe_document_type = this.cr_fe_document_type || null;
+        json.cr_fe_consecutivo = this.cr_fe_consecutivo || null;
+        json.cr_fe_clave = this.cr_fe_clave || null;
+        json.cr_fe_status = this.cr_fe_status || null;
+        json.fp_payment_method = this.fp_payment_method || null;
+        return json;
+    },
+    init_from_JSON(json) {
+        if (super.init_from_JSON) {
+            super.init_from_JSON(...arguments);
+        }
+        this.cr_fe_document_type = json.cr_fe_document_type || null;
+        this.cr_fe_consecutivo = json.cr_fe_consecutivo || null;
+        this.cr_fe_clave = json.cr_fe_clave || null;
+        this.cr_fe_status = json.cr_fe_status || null;
+        this.fp_payment_method = json.fp_payment_method || null;
+    },
     setup(vals) {
-        super.setup(vals);
-
+        if (super.setup) {
+            super.setup(vals);
+        }
         const source = vals || {};
-        this.cr_fe_document_type = normalizeDocumentType(
-            source.cr_fe_document_type ?? this.cr_fe_document_type
-        );
-        this.cr_fe_consecutivo = normalizeText(source.cr_fe_consecutivo ?? this.cr_fe_consecutivo);
-        this.cr_fe_clave = normalizeText(source.cr_fe_clave ?? this.cr_fe_clave);
-        this.cr_fe_status = normalizeText(source.cr_fe_status ?? this.cr_fe_status);
-
-        this.fp_payment_method = normalizeText(source.fp_payment_method ?? this.fp_payment_method);
-
-        this.cr_fe_emisor_name = normalizeText(source.cr_fe_emisor_name ?? this.cr_fe_emisor_name);
-        this.cr_fe_emisor_vat = normalizeText(source.cr_fe_emisor_vat ?? this.cr_fe_emisor_vat);
-        this.cr_fe_emisor_email = normalizeText(source.cr_fe_emisor_email ?? this.cr_fe_emisor_email);
-        this.cr_fe_emisor_phone = normalizeText(source.cr_fe_emisor_phone ?? this.cr_fe_emisor_phone);
-        this.cr_fe_emisor_address = normalizeText(source.cr_fe_emisor_address ?? this.cr_fe_emisor_address);
-
-        this.cr_fe_receptor_name = normalizeText(source.cr_fe_receptor_name ?? this.cr_fe_receptor_name);
-        this.cr_fe_receptor_vat = normalizeText(source.cr_fe_receptor_vat ?? this.cr_fe_receptor_vat);
-        this.cr_fe_receptor_email = normalizeText(source.cr_fe_receptor_email ?? this.cr_fe_receptor_email);
-        this.cr_fe_receptor_phone = normalizeText(source.cr_fe_receptor_phone ?? this.cr_fe_receptor_phone);
-        this.cr_fe_receptor_address = normalizeText(source.cr_fe_receptor_address ?? this.cr_fe_receptor_address);
-
-        // Refund reference fields (NC)
-        this.cr_fe_reference_document_type = normalizeText(
-            source.cr_fe_reference_document_type ?? this.cr_fe_reference_document_type
-        );
-        this.cr_fe_reference_document_number = normalizeText(
-            source.cr_fe_reference_document_number ?? this.cr_fe_reference_document_number
-        );
-        this.cr_fe_reference_issue_date = normalizeDate(
-            source.cr_fe_reference_issue_date ?? this.cr_fe_reference_issue_date
-        );
-        this.cr_fe_reference_code = normalizeText(
-            source.cr_fe_reference_code ?? this.cr_fe_reference_code
-        );
-        this.cr_fe_reference_reason = normalizeText(
-            source.cr_fe_reference_reason ?? this.cr_fe_reference_reason
-        );
+        this.cr_fe_document_type = firstDefined(source.cr_fe_document_type, this.cr_fe_document_type) || null;
+        this.cr_fe_consecutivo = firstDefined(source.cr_fe_consecutivo, this.cr_fe_consecutivo) || null;
+        this.cr_fe_clave = firstDefined(source.cr_fe_clave, this.cr_fe_clave) || null;
+        this.cr_fe_status = firstDefined(source.cr_fe_status, this.cr_fe_status) || null;
+        this.fp_payment_method = firstDefined(source.fp_payment_method, this.fp_payment_method) || null;
     },
-
     export_for_printing() {
-        const parent = Object.getPrototypeOf(PosOrder.prototype);
-        const data = parent.export_for_printing
-            ? parent.export_for_printing.call(this, ...arguments)
-            : {};
-        stripNativeReceiptPartner(data);
-        data.cr_order_date_ddmmyyyy =
-            formatDateDDMMYYYY(data.date?.local) ||
-            formatDateDDMMYYYY(data.date_order) ||
-            formatDateDDMMYYYY(data.date) ||
-            null;
-        data.cr_tax_summary_lines = buildTaxSummaryLines(this, data);
-        return data;
-    },
+        const receipt = super.export_for_printing ? super.export_for_printing(...arguments) : {};
+        const partner = buildPartnerData(this, receipt);
+        const company = buildCompanyData(this, receipt);
 
-    exportForPrinting() {
-        const parent = Object.getPrototypeOf(PosOrder.prototype);
-        const data = parent.exportForPrinting
-            ? parent.exportForPrinting.call(this, ...arguments)
-            : this.export_for_printing(...arguments);
-        stripNativeReceiptPartner(data);
-        data.cr_order_date_ddmmyyyy =
-            formatDateDDMMYYYY(data.date?.local) ||
-            formatDateDDMMYYYY(data.date_order) ||
-            formatDateDDMMYYYY(data.date) ||
-            null;
-        data.cr_tax_summary_lines = buildTaxSummaryLines(this, data);
-        return data;
-    },
+        receipt.orderlines = receipt.orderlines || receipt.order_lines || receipt.lines || [];
+        receipt.paymentlines = receipt.paymentlines || receipt.payment_lines || [];
+        receipt.subtotal = firstDefined(receipt.subtotal, receipt.total_without_tax, receipt.amount_untaxed, "");
+        receipt.tax = firstDefined(receipt.tax, receipt.total_tax, receipt.amount_tax, "");
+        receipt.total_with_tax = firstDefined(receipt.total_with_tax, receipt.total, receipt.amount_total, "");
+        receipt.company = company;
+        receipt.partner = partner;
 
-    serializeForORM(opts = {}) {
-        const data = super.serializeForORM(...arguments);
-
-        // Send reference data for NC (even if server auto-derives it, this allows manual overrides).
-        const referencePayload = buildReferencePayload(this);
-        if (referencePayload) {
-            for (const [key, value] of Object.entries(referencePayload)) {
-                if (value === undefined) continue;
-                if (value === null) continue;
-                if (value === false) continue;
-                data[key] = value;
-            }
+        const orderlines = this.getOrderlines
+            ? this.getOrderlines()
+            : this.get_orderlines
+              ? this.get_orderlines()
+              : this.lines || [];
+        if (Array.isArray(receipt.orderlines)) {
+            receipt.orderlines = receipt.orderlines.map((line, idx) => {
+                const ol = orderlines[idx];
+                if (!ol || !ol.get_all_prices) {
+                    return { ...line, tax_amount: null };
+                }
+                const prices = ol.get_all_prices();
+                const taxAmount = prices && typeof prices.tax === "number" ? prices.tax : 0;
+                return { ...line, tax_amount: taxAmount };
+            });
         }
 
-        return data;
+        if (Array.isArray(receipt.paymentlines)) {
+            receipt.paymentlines = receipt.paymentlines.map((paymentLine) => ({
+                ...paymentLine,
+                amount: firstDefined(paymentLine.amount, paymentLine.amount_formatted, ""),
+            }));
+        }
+
+        receipt.einvoice = {
+            document_type: this.cr_fe_document_type || null,
+            consecutivo: this.cr_fe_consecutivo || null,
+            clave: this.cr_fe_clave || null,
+            status: this.cr_fe_status || null,
+            payment_method: this.fp_payment_method || null,
+            receptor_id:
+                normalizeText(
+                    firstDefined(
+                        receipt.einvoice && receipt.einvoice.receptor_id,
+                        partner.vat,
+                        this.getPartner && this.getPartner() && this.getPartner().vat,
+                        this.get_partner && this.get_partner() && this.get_partner().vat
+                    )
+                ) || null,
+        };
+        return receipt;
     },
 });

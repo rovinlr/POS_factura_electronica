@@ -59,7 +59,6 @@
                             <field name="fp_economic_activity_id" string="Actividad económica" readonly="1"/>
                             <field name="fp_payment_method" string="Medio de pago" readonly="1"/>
                             <field name="amount_tax" string="Impuesto" readonly="1"/>
-                            <field name="cr_other_charges_amount" string="Otros cargos" readonly="1"/>
                             <field name="amount_total" string="Importe total" readonly="1"/>
                             <field name="state" string="Estado contable" readonly="1"/>
                             <field name="account_move" string="Factura contable" readonly="1"/>
@@ -94,17 +93,11 @@
         </field>
     </record>
 
-    <record id="menu_cr_hacienda_comprobantes_pos" model="ir.ui.menu">
-        <field name="name">Comprobantes POS</field>
-        <field
-            name="parent_id"
-            eval="
-                ref('point_of_sale.menu_point_config_product', raise_if_not_found=False)
-                or ref('point_of_sale.menu_point_reporting', raise_if_not_found=False)
-                or ref('point_of_sale.menu_point_root', raise_if_not_found=False)
-            "
-        />
-        <field name="action" ref="action_cr_hacienda_comprobantes_pos"/>
-        <field name="sequence">80</field>
-    </record>
+    <menuitem
+        id="menu_cr_hacienda_comprobantes_pos"
+        name="Comprobantes POS"
+        parent="point_of_sale.menu_point_config_product"
+        action="action_cr_hacienda_comprobantes_pos"
+        sequence="80"
+    />
 </odoo>
